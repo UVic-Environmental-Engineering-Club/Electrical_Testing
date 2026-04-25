@@ -60,8 +60,8 @@ all: main-build
 main-build: CAN_Test.elf secondary-outputs
 
 # Tool invocations
-CAN_Test.elf CAN_Test.map: $(OBJS) $(USER_OBJS) /Users/sebastien/git/uveec/CAN_Test/STM32F446ZETX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "CAN_Test.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"/Users/sebastien/git/uveec/CAN_Test/STM32F446ZETX_FLASH.ld" --specs=nosys.specs -Wl,-Map="CAN_Test.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+CAN_Test.elf CAN_Test.map: $(OBJS) $(USER_OBJS) /Users/sebastien/git/uveec/Electrical_Testing/CAN_Breakout_April_2026/CAN_Test/STM32F446ZETX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "CAN_Test.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"/Users/sebastien/git/uveec/Electrical_Testing/CAN_Breakout_April_2026/CAN_Test/STM32F446ZETX_FLASH.ld" --specs=nosys.specs -Wl,-Map="CAN_Test.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
