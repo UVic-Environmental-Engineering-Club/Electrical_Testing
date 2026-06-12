@@ -19,8 +19,8 @@
 // Wi-Fi Access Point settings
 // -----------------------------------------------------------------------------
 
-const char *apName = "ESP32_PUMP_CONTROLLER";
-const char *apPassword = "12345678";
+const char *apName = "ESP32_WIFI";
+const char *apPassword = "6969";
 
 WebServer server(80);
 
@@ -283,8 +283,14 @@ void setup() {
   applyPumpState();
 
   // Start ESP32 Wi-Fi access point.
-  WiFi.softAP(apName, apPassword);
+  // WiFi.softAP(apName, apPassword);
+WiFi.mode(WIFI_AP);
 
+bool apStarted = WiFi.softAP(apName, apPassword, 6, 0, 4);
+
+Serial.print("SoftAP started: ");
+
+Serial.println(apStarted ? "YES" : "NO");
   Serial.println();
   Serial.println("ESP32 Pump Access Point started");
   Serial.println("Network name: " + String(apName));
