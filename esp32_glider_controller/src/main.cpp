@@ -1,162 +1,309 @@
-/* ESP32 TWAI receive example.
-  Receive messages and sends them over serial.
+#include <Arduino.h>
+#include <WiFi.h>
+#include <WebServer.h>
 
-  Connect a CAN bus transceiver to the RX/TX pins.
-  For example: SN65HVD230
+// -----------------------------------------------------------------------------
+// Board settings
+// -----------------------------------------------------------------------------
 
-  TWAI_MODE_LISTEN_ONLY is used so that the TWAI controller will not influence the bus.
+#ifndef LED_BUILTIN
+#define LED_BUILTIN 48
+#endif
 
-  The API gives other possible speeds and alerts:
-  https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/peripherals/twai.html
+// Change these pins to match your ESP32 wiring.
+#define PUMP_ENABLE_PIN     4
+#define PUMP_DIRECTION_PIN  5
+#define PUMP_PWM_PIN        6
 
-  Example output from a can bus message:
-  -> Message received
-  -> Message is in Standard Format
-  -> ID: 604
-  -> Byte: 0 = 00, 1 = 0f, 2 = 13, 3 = 02, 4 = 00, 5 = 00, 6 = 08, 7 = 00
+// -----------------------------------------------------------------------------
+// Wi-Fi Access Point settings
+// -----------------------------------------------------------------------------
 
-  Example output with alerts:
-  -> Alert: A (Bit, Stuff, CRC, Form, ACK) error has occurred on the bus.
-  -> Bus error count: 171
-  -> Alert: The RX queue is full causing a received frame to be lost.
-  -> RX buffered: 4  RX missed: 46 RX overrun 0
+const char *apName = "ESP32_PUMP_CONTROLLER";
+const char *apPassword = "12345678";
 
-  created 05-11-2022 by Stephan Martin (designer2k2)
-*/
+WebServer server(80);
 
-#include "driver/twai.h"
+// -----------------------------------------------------------------------------
+// PWM settings
+// -----------------------------------------------------------------------------
 
-#include "Arduino.h"
+const int pwmChannel = 0;
+const int pwmFrequency = 5000;
+const int pwmResolution = 10;     // 10-bit PWM: 0 to 1023
+const int pwmMaxDuty = 1023;
 
-// Pins used to connect to CAN bus transceiver:
-#define RX_PIN 5
-#define TX_PIN 4
-//#define RX_PIN 27
-//#define TX_PIN 26
+// -----------------------------------------------------------------------------
+// Pump state
+// -----------------------------------------------------------------------------
 
-// Intervall:
-#define POLLING_RATE_MS 1000
-#define TRANSMIT_RATE_MS 500
+int pumpSpeedPercent = 0;
+bool pumpEnabled = false;
+bool pumpReverse = false;
 
-static bool driver_installed = false;
-unsigned long previousMillis = 0;  // will store last time a message was send
+// -----------------------------------------------------------------------------
+// Apply current pump state to hardware pins
+// -----------------------------------------------------------------------------
 
-uint32_t encoderValue = 0;
+void applyPumpState() {
+  // Enable pin:
+  // LOW  = pump OFF
+  // HIGH = pump ON
+  digitalWrite(PUMP_ENABLE_PIN, pumpEnabled ? HIGH : LOW);
 
-static void send_message() {
-  // Send message
+  // Direction pin:
+  // HIGH = normal direction
+  // LOW  = reverse direction
+  digitalWrite(PUMP_DIRECTION_PIN, pumpReverse ? LOW : HIGH);
 
-  // Configure message to transmit
-  twai_message_t message;
-
-    message.extd = false;  // Extended frame
-    message.identifier = 1;
-    message.data_length_code = 0x04;
-    message.data[0] = 0x04;
-    message.data[1] = 0x01;
-    message.data[2] = 0x01;
-    message.data[3] = 0x00;
-
-
-  // Queue message for transmission
-  if (twai_transmit(&message, pdMS_TO_TICKS(1000)) == ESP_OK) {
-    printf("Message queued for transmission\n");
-  } else {
-    printf("Failed to queue message for transmission\n");
-  }
+  // Convert 0–100% speed to 0–1023 PWM duty.
+  int duty = map(pumpSpeedPercent, 0, 100, 0, pwmMaxDuty);
+  ledcWrite(pwmChannel, duty);
 }
+
+// -----------------------------------------------------------------------------
+// Handle text commands from web interface
+// -----------------------------------------------------------------------------
+
+String handleCommand(String command) {
+  command.trim();
+  command.toUpperCase();
+
+  Serial.println("Command: " + command);
+
+  if (command == "PING") {
+    return "PONG";
+  }
+
+  if (command == "PUMP ON") {
+    pumpEnabled = true;
+    applyPumpState();
+    return "Pump enabled";
+  }
+
+  if (command == "PUMP OFF") {
+    pumpEnabled = false;
+    applyPumpState();
+    return "Pump disabled";
+  }
+
+  if (command == "DIR NORMAL") {
+    pumpReverse = false;
+    applyPumpState();
+    return "Direction set to NORMAL";
+  }
+
+  if (command == "DIR REVERSE") {
+    pumpReverse = true;
+    applyPumpState();
+    return "Direction set to REVERSE";
+  }
+
+  if (command.startsWith("SPEED ")) {
+    int speed = command.substring(6).toInt();
+    speed = constrain(speed, 0, 100);
+
+    pumpSpeedPercent = speed;
+    applyPumpState();
+
+    return "Speed set to " + String(speed) + "%";
+  }
+
+  if (command == "STATUS") {
+    return "Pump: " + String(pumpEnabled ? "ON" : "OFF") +
+           "\nDirection: " + String(pumpReverse ? "REVERSE" : "NORMAL") +
+           "\nSpeed: " + String(pumpSpeedPercent) + "%";
+  }
+
+  return "Unknown command: " + command;
+}
+
+// -----------------------------------------------------------------------------
+// Web page
+// -----------------------------------------------------------------------------
+
+void handleRoot() {
+  String page = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ESP32 Pump Controller</title>
+
+  <style>
+    body {
+      font-family: Arial;
+      margin: 0;
+      padding: 24px;
+      background: #111;
+      color: #eee;
+    }
+
+    .card {
+      max-width: 900px;
+      margin: auto;
+      background: #1b1b1b;
+      padding: 24px;
+      border-radius: 12px;
+      border: 1px solid #333;
+    }
+
+    button {
+      font-size: 16px;
+      padding: 10px 16px;
+      margin: 6px;
+      cursor: pointer;
+    }
+
+    .command-row {
+      margin-top: 20px;
+      display: flex;
+      gap: 10px;
+    }
+
+    input {
+      flex: 1;
+      font-size: 16px;
+      padding: 10px;
+    }
+
+    #log {
+      background: #000;
+      color: #00ff66;
+      padding: 14px;
+      margin-top: 24px;
+      height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      font-family: monospace;
+      border: 1px solid #444;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="card">
+    <h1>ESP32 Pump Controller</h1>
+
+    <button onclick="sendCommand('PUMP ON')">PUMP ON</button>
+    <button onclick="sendCommand('PUMP OFF')">PUMP OFF</button>
+    <button onclick="sendCommand('DIR NORMAL')">NORMAL</button>
+    <button onclick="sendCommand('DIR REVERSE')">REVERSE</button>
+    <button onclick="sendCommand('STATUS')">STATUS</button>
+
+    <br><br>
+
+    <button onclick="sendCommand('SPEED 0')">0%</button>
+    <button onclick="sendCommand('SPEED 25')">25%</button>
+    <button onclick="sendCommand('SPEED 50')">50%</button>
+    <button onclick="sendCommand('SPEED 75')">75%</button>
+    <button onclick="sendCommand('SPEED 100')">100%</button>
+
+    <div class="command-row">
+      <input id="cmd" type="text" placeholder="Example: SPEED 40">
+      <button onclick="sendCustom()">Send</button>
+    </div>
+
+    <div id="log">ESP32 pump console ready.</div>
+  </div>
+
+  <script>
+    function appendLog(text) {
+      const log = document.getElementById('log');
+      log.textContent += String.fromCharCode(10) + text;
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function sendCommand(cmd) {
+      appendLog("> " + cmd);
+
+      fetch('/command?cmd=' + encodeURIComponent(cmd))
+        .then(response => response.text())
+        .then(data => appendLog(data))
+        .catch(error => appendLog("Error: " + error));
+    }
+
+    function sendCustom() {
+      const input = document.getElementById('cmd');
+      const cmd = input.value.trim();
+
+      if (cmd.length > 0) {
+        sendCommand(cmd);
+        input.value = "";
+      }
+    }
+
+    document.getElementById('cmd').addEventListener('keydown', function(event) {
+      if (event.key === 'Enter') {
+        sendCustom();
+      }
+    });
+  </script>
+</body>
+</html>
+)rawliteral";
+
+  server.send(200, "text/html", page);
+}
+
+// -----------------------------------------------------------------------------
+// Web command endpoint
+// -----------------------------------------------------------------------------
+
+void handleWebCommand() {
+  if (!server.hasArg("cmd")) {
+    server.send(400, "text/plain", "Missing cmd argument");
+    return;
+  }
+
+  String response = handleCommand(server.arg("cmd"));
+  server.send(200, "text/plain", response);
+}
+
+// -----------------------------------------------------------------------------
+// Setup
+// -----------------------------------------------------------------------------
 
 void setup() {
-  // Start Serial:
   Serial.begin(115200);
+  delay(1000);
 
-  pinMode(11, OUTPUT);
-  digitalWrite(11, HIGH);
+  pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(PUMP_ENABLE_PIN, OUTPUT);
+  pinMode(PUMP_DIRECTION_PIN, OUTPUT);
 
-  // Initialize configuration structures using macro initializers
-  twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)TX_PIN, (gpio_num_t)RX_PIN, TWAI_MODE_NORMAL);
-  twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();  //Look in the api-reference for other speed sets.
-  twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+  // Setup PWM output.
+  ledcSetup(pwmChannel, pwmFrequency, pwmResolution);
+  ledcAttachPin(PUMP_PWM_PIN, pwmChannel);
 
-  // Install TWAI driver
-  if (twai_driver_install(&g_config, &t_config, &f_config) == ESP_OK) {
-    Serial.println("Driver installed");
-  } else {
-    Serial.println("Failed to install driver");
-    return;
-  }
+  // Start in a safe state.
+  pumpEnabled = false;
+  pumpReverse = false;
+  pumpSpeedPercent = 0;
+  applyPumpState();
 
-  // Start TWAI driver
-  if (twai_start() == ESP_OK) {
-    Serial.println("Driver started");
-  } else {
-    Serial.println("Failed to start driver");
-    return;
-  }
+  // Start ESP32 Wi-Fi access point.
+  WiFi.softAP(apName, apPassword);
 
-  // Reconfigure alerts to detect frame receive, Bus-Off error and RX queue full states
-  uint32_t alerts_to_enable = TWAI_ALERT_RX_DATA | TWAI_ALERT_ERR_PASS | TWAI_ALERT_BUS_ERROR | TWAI_ALERT_RX_QUEUE_FULL;
-  if (twai_reconfigure_alerts(alerts_to_enable, NULL) == ESP_OK) {
-    Serial.println("CAN Alerts reconfigured");
-  } else {
-    Serial.println("Failed to reconfigure alerts");
-    return;
-  }
+  Serial.println();
+  Serial.println("ESP32 Pump Access Point started");
+  Serial.println("Network name: " + String(apName));
+  Serial.println("Password: " + String(apPassword));
+  Serial.print("Open browser to: ");
+  Serial.println(WiFi.softAPIP());
 
-  // TWAI driver is now successfully installed and started
-  driver_installed = true;
+  // Web routes.
+  server.on("/", handleRoot);
+  server.on("/command", handleWebCommand);
+  server.begin();
+
+  Serial.println("Web server started");
 }
 
-static void handle_rx_message(twai_message_t& message) {
-  // Process received message
-   if(message.data[2] == 0x01)
-    {
-        encoderValue = message.data[3] | (message.data[4] << 8) | (message.data[5] << 16) | (message.data[6] << 24);
-    }
-
-
-  Serial.printf("Encoder value: %d\n", encoderValue);
-}
+// -----------------------------------------------------------------------------
+// Main loop
+// -----------------------------------------------------------------------------
 
 void loop() {
-  if (!driver_installed) {
-    // Driver not installed
-    delay(1000);
-    return;
-  }
-  // Check if alert happened
-  uint32_t alerts_triggered;
-  twai_read_alerts(&alerts_triggered, pdMS_TO_TICKS(POLLING_RATE_MS));
-  twai_status_info_t twaistatus;
-  twai_get_status_info(&twaistatus);
-
-  // Handle alerts
-  if (alerts_triggered & TWAI_ALERT_ERR_PASS) {
-    Serial.println("Alert: TWAI controller has become error passive.");
-  }
-  if (alerts_triggered & TWAI_ALERT_BUS_ERROR) {
-    Serial.println("Alert: A (Bit, Stuff, CRC, Form, ACK) error has occurred on the bus.");
-    Serial.printf("Bus error count: %d\n", twaistatus.bus_error_count);
-  }
-  if (alerts_triggered & TWAI_ALERT_RX_QUEUE_FULL) {
-    Serial.println("Alert: The RX queue is full causing a received frame to be lost.");
-    Serial.printf("RX buffered: %d\t", twaistatus.msgs_to_rx);
-    Serial.printf("RX missed: %d\t", twaistatus.rx_missed_count);
-    Serial.printf("RX overrun %d\n", twaistatus.rx_overrun_count);
-  }
-
-  // Check if message is received
-  if (alerts_triggered & TWAI_ALERT_RX_DATA) {
-    // One or more messages received. Handle all.
-    twai_message_t message;
-    while (twai_receive(&message, 0) == ESP_OK) {
-      handle_rx_message(message);
-    }
-  }
-
-    unsigned long currentMillis = millis();
-  if (currentMillis - previousMillis >= TRANSMIT_RATE_MS) {
-    previousMillis = currentMillis;
-    send_message();
-  }
+  server.handleClient();
 }
