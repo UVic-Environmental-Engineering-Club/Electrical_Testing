@@ -18,40 +18,40 @@ const char *FIRMWARE_VERSION = "0.3.1";
 #define LED_BUILTIN 48
 #endif
 
-#define PUMP_ENABLE_PIN 4      // Pump Enable
-#define PUMP_DIRECTION_PIN 5   // Pump Direction
-#define PUMP_PWM_PIN 6         // Pump Speed (PWM -> RC filter -> 0-4V input)
+#define PUMP_ENABLE_PIN 4    // Pump Enable
+#define PUMP_DIRECTION_PIN 5 // Pump Direction
+#define PUMP_PWM_PIN 6       // Pump Speed (PWM -> RC filter -> 0-4V input)
 
-#define CAN_TX_PIN 17          // CAN TX -> SN65HVD230 TXD
-#define CAN_RX_PIN 18          // CAN RX -> SN65HVD230 RXD
+#define CAN_TX_PIN 17 // CAN TX -> SN65HVD230 TXD
+#define CAN_RX_PIN 18 // CAN RX -> SN65HVD230 RXD
 // -----------------------------------------------------------------------------
 // WiFi access point settings
 // -----------------------------------------------------------------------------
 
 const char *apName = "ESP32_GLIDER";
 
-WebServer server(80);           // Web server listening on HTTP port 80
+WebServer server(80); // Web server listening on HTTP port 80
 
 // -----------------------------------------------------------------------------
 // PWM settings
 // -----------------------------------------------------------------------------
 
-const int pwmChannel = 0;        // ESP32 PWM generator/channel number
-const int pwmFrequency = 5000;   // PWM frequency in Hz (pump controller supports 1-25 kHz)
-const int pwmResolution = 10;    // PWM resolution in bits (10-bit = 0-1023)
-const int pwmMaxDuty = 1023;     // Maximum duty cycle value for 10-bit PWM
+const int pwmChannel = 0;      // ESP32 PWM generator/channel number
+const int pwmFrequency = 5000; // PWM frequency in Hz (pump controller supports 1-25 kHz)
+const int pwmResolution = 10;  // PWM resolution in bits (10-bit = 0-1023)
+const int pwmMaxDuty = 1023;   // Maximum duty cycle value for 10-bit PWM
 
 // -----------------------------------------------------------------------------
 // System state
 // -----------------------------------------------------------------------------
 
-int pumpSpeedPercent = 0;         // Current pump speed command (0-100%)
-bool pumpEnabled = false;         // True = pump enabled, False = pump disabled
-bool pumpReverse = false;         // True = reverse direction, False = normal direction
-bool canDriverInstalled = false;  // True when CAN/TWAI driver is running
-uint32_t encoderValue = 0;        // Latest encoder value received from CAN bus
-uint32_t canRxCount = 0;          // Total CAN messages received
-uint32_t canTxCount = 0;          // Total CAN messages transmitted
+int pumpSpeedPercent = 0;        // Current pump speed command (0-100%)
+bool pumpEnabled = false;        // True = pump enabled, False = pump disabled
+bool pumpReverse = false;        // True = reverse direction, False = normal direction
+bool canDriverInstalled = false; // True when CAN/TWAI driver is running
+uint32_t encoderValue = 0;       // Latest encoder value received from CAN bus
+uint32_t canRxCount = 0;         // Total CAN messages received
+uint32_t canTxCount = 0;         // Total CAN messages transmitted
 
 // -----------------------------------------------------------------------------
 // Pump control
@@ -118,10 +118,10 @@ bool startCAN()
 
   // Configure CAN alerts that should generate notifications.
   uint32_t alertsToEnable =
-      TWAI_ALERT_RX_DATA |       // New CAN message received
-      TWAI_ALERT_ERR_PASS |      // Controller entered error-passive state
-      TWAI_ALERT_BUS_ERROR |     // Bus error detected
-      TWAI_ALERT_RX_QUEUE_FULL;  // Receive queue overflow
+      TWAI_ALERT_RX_DATA |      // New CAN message received
+      TWAI_ALERT_ERR_PASS |     // Controller entered error-passive state
+      TWAI_ALERT_BUS_ERROR |    // Bus error detected
+      TWAI_ALERT_RX_QUEUE_FULL; // Receive queue overflow
 
   if (twai_reconfigure_alerts(alertsToEnable, NULL) != ESP_OK)
   {
@@ -304,6 +304,16 @@ String handleCommand(String command)
   if (command == "PING")
     return "PONG";
 
+  // Software emergency stop.
+  // Disables pump and sets speed command to 0%.
+  if (command == "KILL")
+  {
+    pumpEnabled = false;
+    pumpSpeedPercent = 0;
+    applyPumpState();
+    return "EMERGENCY STOP: pump disabled and speed set to 0%";
+  }
+
   // Send a test CAN message.
   if (command == "CAN TEST")
   {
@@ -320,7 +330,6 @@ String handleCommand(String command)
   if (command == "PUMP ON")
   {
     pumpEnabled = true;
-    
     applyPumpState();
     return "Pump enabled";
   }
@@ -384,7 +393,6 @@ String handleCommand(String command)
   // Command not recognized.
   return "Unknown command: " + command;
 }
-
 // -----------------------------------------------------------------------------
 // Web page
 // -----------------------------------------------------------------------------
@@ -460,6 +468,7 @@ void handleRoot()
 
     <button onclick="sendCommand('PING')">PING</button>
     <button onclick="sendCommand('STATUS')">STATUS</button>
+    <button onclick="sendCommand('KILL')">KILL</button>
 
     <h3>Pump Controls</h3>
     <button onclick="sendCommand('PUMP ON')">PUMP ON</button>
@@ -475,7 +484,6 @@ void handleRoot()
     <button onclick="sendCommand('SPEED 100')">100%</button>
 
     <h3>CAN Bus</h3>
-
 <button onclick="sendCommand('CAN TEST')">CAN TEST</button>
 <button onclick="sendCommand('CAN RESET')">CAN RESET</button>
 <button onclick="sendCommand('STATUS')">CAN STATUS</button>
