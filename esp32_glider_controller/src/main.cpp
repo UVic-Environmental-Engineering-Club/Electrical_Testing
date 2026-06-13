@@ -8,7 +8,7 @@
 // -----------------------------------------------------------------------------
 
 const char *FIRMWARE_NAME = "ESP32 Glider Controller";
-const char *FIRMWARE_VERSION = "0.3.0";
+const char *FIRMWARE_VERSION = "0.3.1";
 
 // -----------------------------------------------------------------------------
 // Board pin settings
@@ -18,12 +18,12 @@ const char *FIRMWARE_VERSION = "0.3.0";
 #define LED_BUILTIN 48
 #endif
 
-#define PUMP_ENABLE_PIN     4
-#define PUMP_DIRECTION_PIN  5
-#define PUMP_PWM_PIN        6
+#define PUMP_ENABLE_PIN 4
+#define PUMP_DIRECTION_PIN 5
+#define PUMP_PWM_PIN 6
 
-#define CAN_TX_PIN          17
-#define CAN_RX_PIN          18
+#define CAN_TX_PIN 17
+#define CAN_RX_PIN 18
 
 // -----------------------------------------------------------------------------
 // WiFi access point settings
@@ -58,7 +58,8 @@ uint32_t canTxCount = 0;
 // Pump control
 // -----------------------------------------------------------------------------
 
-void applyPumpState() {
+void applyPumpState()
+{
   digitalWrite(PUMP_ENABLE_PIN, pumpEnabled ? HIGH : LOW);
   digitalWrite(PUMP_DIRECTION_PIN, pumpReverse ? LOW : HIGH);
 
@@ -70,23 +71,25 @@ void applyPumpState() {
 // CAN setup
 // -----------------------------------------------------------------------------
 
-bool startCAN() {
+bool startCAN()
+{
   twai_general_config_t g_config =
       TWAI_GENERAL_CONFIG_DEFAULT(
           (gpio_num_t)CAN_TX_PIN,
           (gpio_num_t)CAN_RX_PIN,
-          TWAI_MODE_NORMAL
-      );
+          TWAI_MODE_NORMAL);
 
   twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
   twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
-  if (twai_driver_install(&g_config, &t_config, &f_config) != ESP_OK) {
+  if (twai_driver_install(&g_config, &t_config, &f_config) != ESP_OK)
+  {
     Serial.println("CAN driver install failed");
     return false;
   }
 
-  if (twai_start() != ESP_OK) {
+  if (twai_start() != ESP_OK)
+  {
     Serial.println("CAN driver start failed");
     return false;
   }
@@ -97,7 +100,8 @@ bool startCAN() {
       TWAI_ALERT_BUS_ERROR |
       TWAI_ALERT_RX_QUEUE_FULL;
 
-  if (twai_reconfigure_alerts(alertsToEnable, NULL) != ESP_OK) {
+  if (twai_reconfigure_alerts(alertsToEnable, NULL) != ESP_OK)
+  {
     Serial.println("CAN alert configuration failed");
     return false;
   }
@@ -107,12 +111,35 @@ bool startCAN() {
   return true;
 }
 
+String resetCAN()
+{
+
+  if (canDriverInstalled)
+  {
+
+    twai_stop();
+
+    twai_driver_uninstall();
+
+    canDriverInstalled = false;
+  }
+
+  if (startCAN())
+  {
+
+    return "CAN driver reset successfully";
+  }
+
+  return "CAN driver reset failed";
+}
 // -----------------------------------------------------------------------------
 // CAN transmit
 // -----------------------------------------------------------------------------
 
-String sendCANTestMessage() {
-  if (!canDriverInstalled) {
+String sendCANTestMessage()
+{
+  if (!canDriverInstalled)
+  {
     return "CAN driver not started";
   }
 
@@ -127,7 +154,8 @@ String sendCANTestMessage() {
   message.data[2] = 0x01;
   message.data[3] = 0x00;
 
-  if (twai_transmit(&message, pdMS_TO_TICKS(1000)) == ESP_OK) {
+  if (twai_transmit(&message, pdMS_TO_TICKS(1000)) == ESP_OK)
+  {
     canTxCount++;
     Serial.println("CAN TEST message queued");
     return "CAN TEST sent: ID 0x01 DATA 04 01 01 00";
@@ -141,7 +169,8 @@ String sendCANTestMessage() {
 // CAN receive
 // -----------------------------------------------------------------------------
 
-void handleCANRxMessage(twai_message_t &message) {
+void handleCANRxMessage(twai_message_t &message)
+{
   canRxCount++;
 
   Serial.println("CAN message received");
@@ -152,8 +181,10 @@ void handleCANRxMessage(twai_message_t &message) {
   Serial.println(message.data_length_code);
 
   Serial.print("Data: ");
-  for (int i = 0; i < message.data_length_code; i++) {
-    if (message.data[i] < 0x10) Serial.print("0");
+  for (int i = 0; i < message.data_length_code; i++)
+  {
+    if (message.data[i] < 0x10)
+      Serial.print("0");
     Serial.print(message.data[i], HEX);
     Serial.print(" ");
   }
@@ -161,7 +192,8 @@ void handleCANRxMessage(twai_message_t &message) {
 
   // Seb's encoder decode logic.
   // Only decode when byte 2 indicates encoder data.
-  if (message.data_length_code >= 7 && message.data[2] == 0x01) {
+  if (message.data_length_code >= 7 && message.data[2] == 0x01)
+  {
     encoderValue =
         message.data[3] |
         (message.data[4] << 8) |
@@ -177,8 +209,10 @@ void handleCANRxMessage(twai_message_t &message) {
 // CAN polling
 // -----------------------------------------------------------------------------
 
-void pollCAN() {
-  if (!canDriverInstalled) {
+void pollCAN()
+{
+  if (!canDriverInstalled)
+  {
     return;
   }
 
@@ -188,17 +222,20 @@ void pollCAN() {
   twai_status_info_t twaiStatus;
   twai_get_status_info(&twaiStatus);
 
-  if (alertsTriggered & TWAI_ALERT_ERR_PASS) {
+  if (alertsTriggered & TWAI_ALERT_ERR_PASS)
+  {
     Serial.println("CAN alert: controller is error passive");
   }
 
-  if (alertsTriggered & TWAI_ALERT_BUS_ERROR) {
+  if (alertsTriggered & TWAI_ALERT_BUS_ERROR)
+  {
     Serial.println("CAN alert: bus error");
     Serial.print("Bus error count: ");
     Serial.println(twaiStatus.bus_error_count);
   }
 
-  if (alertsTriggered & TWAI_ALERT_RX_QUEUE_FULL) {
+  if (alertsTriggered & TWAI_ALERT_RX_QUEUE_FULL)
+  {
     Serial.println("CAN alert: RX queue full");
     Serial.print("RX buffered: ");
     Serial.println(twaiStatus.msgs_to_rx);
@@ -208,10 +245,12 @@ void pollCAN() {
     Serial.println(twaiStatus.rx_overrun_count);
   }
 
-  if (alertsTriggered & TWAI_ALERT_RX_DATA) {
+  if (alertsTriggered & TWAI_ALERT_RX_DATA)
+  {
     twai_message_t message;
 
-    while (twai_receive(&message, 0) == ESP_OK) {
+    while (twai_receive(&message, 0) == ESP_OK)
+    {
       handleCANRxMessage(message);
     }
   }
@@ -221,43 +260,56 @@ void pollCAN() {
 // Command handling
 // -----------------------------------------------------------------------------
 
-String handleCommand(String command) {
+String handleCommand(String command)
+{
   command.trim();
   command.toUpperCase();
 
   Serial.println("Command: " + command);
 
-  if (command == "PING") return "PONG";
+  if (command == "PING")
+    return "PONG";
 
-  if (command == "CAN TEST") {
+  if (command == "CAN TEST")
+  {
     return sendCANTestMessage();
   }
 
-  if (command == "PUMP ON") {
+  if (command == "CAN RESET")
+  {
+    return resetCAN();
+  }
+
+  if (command == "PUMP ON")
+  {
     pumpEnabled = true;
     applyPumpState();
     return "Pump enabled";
   }
 
-  if (command == "PUMP OFF") {
+  if (command == "PUMP OFF")
+  {
     pumpEnabled = false;
     applyPumpState();
     return "Pump disabled";
   }
 
-  if (command == "DIR NORMAL") {
+  if (command == "DIR NORMAL")
+  {
     pumpReverse = false;
     applyPumpState();
     return "Direction set to NORMAL";
   }
 
-  if (command == "DIR REVERSE") {
+  if (command == "DIR REVERSE")
+  {
     pumpReverse = true;
     applyPumpState();
     return "Direction set to REVERSE";
   }
 
-  if (command.startsWith("SPEED ")) {
+  if (command.startsWith("SPEED "))
+  {
     int speed = command.substring(6).toInt();
     speed = constrain(speed, 0, 100);
     pumpSpeedPercent = speed;
@@ -265,7 +317,8 @@ String handleCommand(String command) {
     return "Speed set to " + String(speed) + "%";
   }
 
-  if (command == "STATUS") {
+  if (command == "STATUS")
+  {
     return "Firmware: " + String(FIRMWARE_NAME) +
            "\nVersion: " + String(FIRMWARE_VERSION) +
            "\nWiFi AP: " + String(apName) +
@@ -286,7 +339,8 @@ String handleCommand(String command) {
 // Web page
 // -----------------------------------------------------------------------------
 
-void handleRoot() {
+void handleRoot()
+{
   String page = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -371,8 +425,10 @@ void handleRoot() {
     <button onclick="sendCommand('SPEED 100')">100%</button>
 
     <h3>CAN Bus</h3>
-    <button onclick="sendCommand('CAN TEST')">CAN TEST</button>
-    <button onclick="sendCommand('STATUS')">CAN STATUS</button>
+
+<button onclick="sendCommand('CAN TEST')">CAN TEST</button>
+<button onclick="sendCommand('CAN RESET')">CAN RESET</button>
+<button onclick="sendCommand('STATUS')">CAN STATUS</button>
 
     <div class="command-row">
       <input id="cmd" type="text" placeholder="Example: CAN TEST">
@@ -423,8 +479,10 @@ void handleRoot() {
 // Web server
 // -----------------------------------------------------------------------------
 
-void handleWebCommand() {
-  if (!server.hasArg("cmd")) {
+void handleWebCommand()
+{
+  if (!server.hasArg("cmd"))
+  {
     server.send(400, "text/plain", "Missing cmd argument");
     return;
   }
@@ -432,7 +490,8 @@ void handleWebCommand() {
   server.send(200, "text/plain", handleCommand(server.arg("cmd")));
 }
 
-void startWebServer() {
+void startWebServer()
+{
   server.on("/", handleRoot);
   server.on("/command", handleWebCommand);
   server.begin();
@@ -443,7 +502,8 @@ void startWebServer() {
 // WiFi setup
 // -----------------------------------------------------------------------------
 
-void startAccessPoint() {
+void startAccessPoint()
+{
   WiFi.mode(WIFI_AP);
 
   bool apStarted = WiFi.softAP(apName);
@@ -461,7 +521,8 @@ void startAccessPoint() {
 // Startup banner
 // -----------------------------------------------------------------------------
 
-void printStartupBanner() {
+void printStartupBanner()
+{
   Serial.println();
   Serial.println("=================================");
   Serial.println(FIRMWARE_NAME);
@@ -474,7 +535,8 @@ void printStartupBanner() {
 // Setup
 // -----------------------------------------------------------------------------
 
-void setup() {
+void setup()
+{
   Serial.begin(115200);
   delay(1000);
 
@@ -498,7 +560,8 @@ void setup() {
 // Main loop
 // -----------------------------------------------------------------------------
 
-void loop() {
+void loop()
+{
   server.handleClient();
   pollCAN();
 }
