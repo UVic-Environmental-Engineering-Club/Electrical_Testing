@@ -3,6 +3,13 @@
 #include <WebServer.h>
 
 // -----------------------------------------------------------------------------
+// Project settings
+// -----------------------------------------------------------------------------
+
+const char *FIRMWARE_NAME = "ESP32 Glider Controller";
+const char *FIRMWARE_VERSION = "0.1.0";
+
+// -----------------------------------------------------------------------------
 // Board settings
 // -----------------------------------------------------------------------------
 
@@ -10,17 +17,19 @@
 #define LED_BUILTIN 48
 #endif
 
-// Change these pins to match your ESP32 wiring.
 #define PUMP_ENABLE_PIN     4
 #define PUMP_DIRECTION_PIN  5
 #define PUMP_PWM_PIN        6
 
 // -----------------------------------------------------------------------------
-// Wi-Fi Access Point settings
+// WiFi access point settings
 // -----------------------------------------------------------------------------
 
-const char *apName = "ESP32_WIFI";
-const char *apPassword = "6969";
+const char *apName = "ESP32_GLIDER";
+
+// Open network for testing.
+// Later, we can switch back to password-protected WiFi.
+// const char *apPassword = "6969";
 
 WebServer server(80);
 
@@ -30,7 +39,7 @@ WebServer server(80);
 
 const int pwmChannel = 0;
 const int pwmFrequency = 5000;
-const int pwmResolution = 10;     // 10-bit PWM: 0 to 1023
+const int pwmResolution = 10;
 const int pwmMaxDuty = 1023;
 
 // -----------------------------------------------------------------------------
@@ -42,27 +51,19 @@ bool pumpEnabled = false;
 bool pumpReverse = false;
 
 // -----------------------------------------------------------------------------
-// Apply current pump state to hardware pins
+// Hardware control
 // -----------------------------------------------------------------------------
 
 void applyPumpState() {
-  // Enable pin:
-  // LOW  = pump OFF
-  // HIGH = pump ON
   digitalWrite(PUMP_ENABLE_PIN, pumpEnabled ? HIGH : LOW);
-
-  // Direction pin:
-  // HIGH = normal direction
-  // LOW  = reverse direction
   digitalWrite(PUMP_DIRECTION_PIN, pumpReverse ? LOW : HIGH);
 
-  // Convert 0–100% speed to 0–1023 PWM duty.
   int duty = map(pumpSpeedPercent, 0, 100, 0, pwmMaxDuty);
   ledcWrite(pwmChannel, duty);
 }
 
 // -----------------------------------------------------------------------------
-// Handle text commands from web interface
+// Command handling
 // -----------------------------------------------------------------------------
 
 String handleCommand(String command) {
@@ -110,9 +111,12 @@ String handleCommand(String command) {
   }
 
   if (command == "STATUS") {
-    return "Pump: " + String(pumpEnabled ? "ON" : "OFF") +
+    return "Firmware: " + String(FIRMWARE_NAME) +
+           "\nVersion: " + String(FIRMWARE_VERSION) +
+           "\nPump: " + String(pumpEnabled ? "ON" : "OFF") +
            "\nDirection: " + String(pumpReverse ? "REVERSE" : "NORMAL") +
-           "\nSpeed: " + String(pumpSpeedPercent) + "%";
+           "\nSpeed: " + String(pumpSpeedPercent) + "%" +
+           "\nConnected clients: " + String(WiFi.softAPgetStationNum());
   }
 
   return "Unknown command: " + command;
@@ -127,7 +131,7 @@ void handleRoot() {
 <!DOCTYPE html>
 <html>
 <head>
-  <title>ESP32 Pump Controller</title>
+  <title>ESP32 Glider Controller</title>
 
   <style>
     body {
@@ -183,13 +187,17 @@ void handleRoot() {
 
 <body>
   <div class="card">
-    <h1>ESP32 Pump Controller</h1>
+    <h1>ESP32 Glider Controller</h1>
+
+    <button onclick="sendCommand('PING')">PING</button>
+    <button onclick="sendCommand('STATUS')">STATUS</button>
+
+    <br><br>
 
     <button onclick="sendCommand('PUMP ON')">PUMP ON</button>
     <button onclick="sendCommand('PUMP OFF')">PUMP OFF</button>
     <button onclick="sendCommand('DIR NORMAL')">NORMAL</button>
     <button onclick="sendCommand('DIR REVERSE')">REVERSE</button>
-    <button onclick="sendCommand('STATUS')">STATUS</button>
 
     <br><br>
 
@@ -204,7 +212,7 @@ void handleRoot() {
       <button onclick="sendCustom()">Send</button>
     </div>
 
-    <div id="log">ESP32 pump console ready.</div>
+    <div id="log">ESP32 glider console ready.</div>
   </div>
 
   <script>
@@ -247,7 +255,7 @@ void handleRoot() {
 }
 
 // -----------------------------------------------------------------------------
-// Web command endpoint
+// Web endpoints
 // -----------------------------------------------------------------------------
 
 void handleWebCommand() {
@@ -260,6 +268,57 @@ void handleWebCommand() {
   server.send(200, "text/plain", response);
 }
 
+void startWebServer() {
+  server.on("/", handleRoot);
+  server.on("/command", handleWebCommand);
+  server.begin();
+
+  Serial.println("Web server started");
+}
+
+// -----------------------------------------------------------------------------
+// WiFi setup
+// -----------------------------------------------------------------------------
+
+void startAccessPoint() {
+  WiFi.mode(WIFI_AP);
+
+  bool apStarted = WiFi.softAP(apName);
+
+  Serial.println();
+  Serial.print("SoftAP started: ");
+  Serial.println(apStarted ? "YES" : "NO");
+
+  Serial.println("Access point started");
+  Serial.println("Network name: " + String(apName));
+  Serial.println("Security: OPEN");
+
+  Serial.print("Open browser to: ");
+  Serial.println(WiFi.softAPIP());
+
+  Serial.print("MAC Address: ");
+  Serial.println(WiFi.softAPmacAddress());
+
+  Serial.print("Channel: ");
+  Serial.println(WiFi.channel());
+
+  Serial.print("Connected clients: ");
+  Serial.println(WiFi.softAPgetStationNum());
+}
+
+// -----------------------------------------------------------------------------
+// Startup banner
+// -----------------------------------------------------------------------------
+
+void printStartupBanner() {
+  Serial.println();
+  Serial.println("=================================");
+  Serial.println(FIRMWARE_NAME);
+  Serial.print("Firmware Version: ");
+  Serial.println(FIRMWARE_VERSION);
+  Serial.println("=================================");
+}
+
 // -----------------------------------------------------------------------------
 // Setup
 // -----------------------------------------------------------------------------
@@ -268,42 +327,22 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
 
+  printStartupBanner();
+
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(PUMP_ENABLE_PIN, OUTPUT);
   pinMode(PUMP_DIRECTION_PIN, OUTPUT);
 
-  // Setup PWM output.
   ledcSetup(pwmChannel, pwmFrequency, pwmResolution);
   ledcAttachPin(PUMP_PWM_PIN, pwmChannel);
 
-  // Start in a safe state.
   pumpEnabled = false;
   pumpReverse = false;
   pumpSpeedPercent = 0;
   applyPumpState();
 
-  // Start ESP32 Wi-Fi access point.
-  // WiFi.softAP(apName, apPassword);
-WiFi.mode(WIFI_AP);
-
-bool apStarted = WiFi.softAP(apName, apPassword, 6, 0, 4);
-
-Serial.print("SoftAP started: ");
-
-Serial.println(apStarted ? "YES" : "NO");
-  Serial.println();
-  Serial.println("ESP32 Pump Access Point started");
-  Serial.println("Network name: " + String(apName));
-  Serial.println("Password: " + String(apPassword));
-  Serial.print("Open browser to: ");
-  Serial.println(WiFi.softAPIP());
-
-  // Web routes.
-  server.on("/", handleRoot);
-  server.on("/command", handleWebCommand);
-  server.begin();
-
-  Serial.println("Web server started");
+  startAccessPoint();
+  startWebServer();
 }
 
 // -----------------------------------------------------------------------------
