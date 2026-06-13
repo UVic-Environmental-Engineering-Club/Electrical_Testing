@@ -18,87 +18,110 @@ const char *FIRMWARE_VERSION = "0.3.1";
 #define LED_BUILTIN 48
 #endif
 
-#define PUMP_ENABLE_PIN 4
-#define PUMP_DIRECTION_PIN 5
-#define PUMP_PWM_PIN 6
+#define PUMP_ENABLE_PIN 4      // Pump Enable
+#define PUMP_DIRECTION_PIN 5   // Pump Direction
+#define PUMP_PWM_PIN 6         // Pump Speed (PWM -> RC filter -> 0-4V input)
 
-#define CAN_TX_PIN 17
-#define CAN_RX_PIN 18
-
+#define CAN_TX_PIN 17          // CAN TX -> SN65HVD230 TXD
+#define CAN_RX_PIN 18          // CAN RX -> SN65HVD230 RXD
 // -----------------------------------------------------------------------------
 // WiFi access point settings
 // -----------------------------------------------------------------------------
 
 const char *apName = "ESP32_GLIDER";
-WebServer server(80);
+
+WebServer server(80);           // Web server listening on HTTP port 80
 
 // -----------------------------------------------------------------------------
 // PWM settings
 // -----------------------------------------------------------------------------
 
-const int pwmChannel = 0;
-const int pwmFrequency = 5000;
-const int pwmResolution = 10;
-const int pwmMaxDuty = 1023;
+const int pwmChannel = 0;        // ESP32 PWM generator/channel number
+const int pwmFrequency = 5000;   // PWM frequency in Hz (pump controller supports 1-25 kHz)
+const int pwmResolution = 10;    // PWM resolution in bits (10-bit = 0-1023)
+const int pwmMaxDuty = 1023;     // Maximum duty cycle value for 10-bit PWM
 
 // -----------------------------------------------------------------------------
 // System state
 // -----------------------------------------------------------------------------
 
-int pumpSpeedPercent = 0;
-bool pumpEnabled = false;
-bool pumpReverse = false;
-bool canDriverInstalled = false;
-
-uint32_t encoderValue = 0;
-uint32_t canRxCount = 0;
-uint32_t canTxCount = 0;
+int pumpSpeedPercent = 0;         // Current pump speed command (0-100%)
+bool pumpEnabled = false;         // True = pump enabled, False = pump disabled
+bool pumpReverse = false;         // True = reverse direction, False = normal direction
+bool canDriverInstalled = false;  // True when CAN/TWAI driver is running
+uint32_t encoderValue = 0;        // Latest encoder value received from CAN bus
+uint32_t canRxCount = 0;          // Total CAN messages received
+uint32_t canTxCount = 0;          // Total CAN messages transmitted
 
 // -----------------------------------------------------------------------------
 // Pump control
+// Updates the physical pump control outputs based on the current software state.
 // -----------------------------------------------------------------------------
 
 void applyPumpState()
 {
+  // Enable/disable pump controller.
+  // HIGH = enabled
+  // LOW  = disabled
   digitalWrite(PUMP_ENABLE_PIN, pumpEnabled ? HIGH : LOW);
+
+  // Set pump direction.
+  // HIGH = normal direction
+  // LOW  = reverse direction
   digitalWrite(PUMP_DIRECTION_PIN, pumpReverse ? LOW : HIGH);
 
+  // Convert speed command from:
+  //   0-100%  -->  0-1023 PWM duty cycle
   int duty = map(pumpSpeedPercent, 0, 100, 0, pwmMaxDuty);
+
+  // Output PWM speed command to the pump controller.
   ledcWrite(pwmChannel, duty);
 }
 
 // -----------------------------------------------------------------------------
 // CAN setup
+// Initializes the ESP32 TWAI (CAN) controller.
+// Must be called before transmitting or receiving CAN messages.
 // -----------------------------------------------------------------------------
 
 bool startCAN()
 {
+  // General CAN controller configuration.
+  // Uses the specified TX/RX pins and normal operating mode.
   twai_general_config_t g_config =
       TWAI_GENERAL_CONFIG_DEFAULT(
           (gpio_num_t)CAN_TX_PIN,
           (gpio_num_t)CAN_RX_PIN,
           TWAI_MODE_NORMAL);
 
+  // CAN bus speed.
+  // Draw-wire sensor currently expected to operate at 500 kbps.
   twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
+
+  // Accept all incoming CAN messages.
+  // Filtering can be added later if required.
   twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
+  // Install CAN driver.
   if (twai_driver_install(&g_config, &t_config, &f_config) != ESP_OK)
   {
     Serial.println("CAN driver install failed");
     return false;
   }
 
+  // Start CAN controller.
   if (twai_start() != ESP_OK)
   {
     Serial.println("CAN driver start failed");
     return false;
   }
 
+  // Configure CAN alerts that should generate notifications.
   uint32_t alertsToEnable =
-      TWAI_ALERT_RX_DATA |
-      TWAI_ALERT_ERR_PASS |
-      TWAI_ALERT_BUS_ERROR |
-      TWAI_ALERT_RX_QUEUE_FULL;
+      TWAI_ALERT_RX_DATA |       // New CAN message received
+      TWAI_ALERT_ERR_PASS |      // Controller entered error-passive state
+      TWAI_ALERT_BUS_ERROR |     // Bus error detected
+      TWAI_ALERT_RX_QUEUE_FULL;  // Receive queue overflow
 
   if (twai_reconfigure_alerts(alertsToEnable, NULL) != ESP_OK)
   {
@@ -106,27 +129,33 @@ bool startCAN()
     return false;
   }
 
+  // CAN system is now operational.
   canDriverInstalled = true;
+
   Serial.println("CAN driver started");
   return true;
 }
 
+// -----------------------------------------------------------------------------
+// CAN reset
+// Stops and reinstalls the CAN driver.
+// Useful if the CAN bus locks up or needs reinitialization.
+// -----------------------------------------------------------------------------
+
 String resetCAN()
 {
-
+  // Shut down existing CAN driver if running.
   if (canDriverInstalled)
   {
-
     twai_stop();
-
     twai_driver_uninstall();
 
     canDriverInstalled = false;
   }
 
+  // Reinitialize CAN system.
   if (startCAN())
   {
-
     return "CAN driver reset successfully";
   }
 
@@ -258,35 +287,45 @@ void pollCAN()
 
 // -----------------------------------------------------------------------------
 // Command handling
+// Processes commands received from the web interface.
+// Returns a text response that is displayed in the web console.
 // -----------------------------------------------------------------------------
 
 String handleCommand(String command)
 {
+  // Remove leading/trailing spaces and convert to uppercase
+  // so commands are not case-sensitive.
   command.trim();
   command.toUpperCase();
 
   Serial.println("Command: " + command);
 
+  // Simple communication test.
   if (command == "PING")
     return "PONG";
 
+  // Send a test CAN message.
   if (command == "CAN TEST")
   {
     return sendCANTestMessage();
   }
 
+  // Restart the CAN driver.
   if (command == "CAN RESET")
   {
     return resetCAN();
   }
 
+  // Enable pump output.
   if (command == "PUMP ON")
   {
     pumpEnabled = true;
+    
     applyPumpState();
     return "Pump enabled";
   }
 
+  // Disable pump output.
   if (command == "PUMP OFF")
   {
     pumpEnabled = false;
@@ -294,6 +333,7 @@ String handleCommand(String command)
     return "Pump disabled";
   }
 
+  // Set pump direction to normal/forward.
   if (command == "DIR NORMAL")
   {
     pumpReverse = false;
@@ -301,6 +341,7 @@ String handleCommand(String command)
     return "Direction set to NORMAL";
   }
 
+  // Set pump direction to reverse.
   if (command == "DIR REVERSE")
   {
     pumpReverse = true;
@@ -308,15 +349,23 @@ String handleCommand(String command)
     return "Direction set to REVERSE";
   }
 
+  // Set pump speed percentage.
+  // Example:
+  //   SPEED 50
   if (command.startsWith("SPEED "))
   {
     int speed = command.substring(6).toInt();
+
+    // Limit speed to valid range.
     speed = constrain(speed, 0, 100);
+
     pumpSpeedPercent = speed;
     applyPumpState();
+
     return "Speed set to " + String(speed) + "%";
   }
 
+  // Return current controller status.
   if (command == "STATUS")
   {
     return "Firmware: " + String(FIRMWARE_NAME) +
@@ -332,6 +381,7 @@ String handleCommand(String command)
            "\nEncoder value: " + String(encoderValue);
   }
 
+  // Command not recognized.
   return "Unknown command: " + command;
 }
 
@@ -476,38 +526,45 @@ void handleRoot()
 }
 
 // -----------------------------------------------------------------------------
-// Web server
+// Web server handlers
 // -----------------------------------------------------------------------------
 
+// Process commands received from the web interface.
 void handleWebCommand()
 {
+  // Verify command parameter exists.
   if (!server.hasArg("cmd"))
   {
     server.send(400, "text/plain", "Missing cmd argument");
     return;
   }
 
+  // Execute command and return response.
   server.send(200, "text/plain", handleCommand(server.arg("cmd")));
 }
 
+// Configure and start the web server.
 void startWebServer()
 {
-  server.on("/", handleRoot);
-  server.on("/command", handleWebCommand);
+  server.on("/", handleRoot);              // Main webpage
+  server.on("/command", handleWebCommand); // Command endpoint
+
   server.begin();
+
   Serial.println("Web server started");
 }
 
 // -----------------------------------------------------------------------------
-// WiFi setup
+// WiFi Access Point setup
 // -----------------------------------------------------------------------------
 
 void startAccessPoint()
 {
+  // Start WiFi access point.
   WiFi.mode(WIFI_AP);
-
   bool apStarted = WiFi.softAP(apName);
 
+  // Print connection information.
   Serial.println();
   Serial.print("SoftAP started: ");
   Serial.println(apStarted ? "YES" : "NO");
@@ -548,6 +605,11 @@ void setup()
 
   ledcSetup(pwmChannel, pwmFrequency, pwmResolution);
   ledcAttachPin(PUMP_PWM_PIN, pwmChannel);
+
+  // Start in a safe state.
+  pumpEnabled = false;
+  pumpReverse = false;
+  pumpSpeedPercent = 0;
 
   applyPumpState();
 
