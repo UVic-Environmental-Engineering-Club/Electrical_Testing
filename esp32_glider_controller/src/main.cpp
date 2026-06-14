@@ -522,6 +522,24 @@ void handleRoot()
       }
     }
 
+    let lastEncoderValue = null;
+    function pollEncoderValue() {
+      fetch('/encoder')
+        .then(response => response.json())
+        .then(data => {
+          if (data.encoderValue !== lastEncoderValue) {
+            lastEncoderValue = data.encoderValue;
+            appendLog('Encoder value: ' + data.encoderValue);
+          }
+        })
+        .catch(error => {
+          console.error('Encoder poll failed', error);
+        });
+    }
+
+    setInterval(pollEncoderValue, 1000);
+    pollEncoderValue();
+
     document.getElementById('cmd').addEventListener('keydown', function(event) {
       if (event.key === 'Enter') sendCustom();
     });
@@ -551,11 +569,19 @@ void handleWebCommand()
   server.send(200, "text/plain", handleCommand(server.arg("cmd")));
 }
 
+// Return the current encoder value as JSON.
+void handleEncoderValue()
+{
+  String payload = "{\"encoderValue\":" + String(encoderValue) + "}";
+  server.send(200, "application/json", payload);
+}
+
 // Configure and start the web server.
 void startWebServer()
 {
   server.on("/", handleRoot);              // Main webpage
   server.on("/command", handleWebCommand); // Command endpoint
+  server.on("/encoder", handleEncoderValue); // Encoder status endpoint
 
   server.begin();
 
