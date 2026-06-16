@@ -148,31 +148,6 @@ bool startCAN()
 }
 
 // -----------------------------------------------------------------------------
-// CAN reset
-// Stops and reinstalls the CAN driver.
-// Useful if the CAN bus locks up or needs reinitialization.
-// -----------------------------------------------------------------------------
-
-String resetCAN()
-{
-  // Shut down existing CAN driver if running.
-  if (canDriverInstalled)
-  {
-    twai_stop();
-    twai_driver_uninstall();
-
-    canDriverInstalled = false;
-  }
-
-  // Reinitialize CAN system.
-  if (startCAN())
-  {
-    return "CAN driver reset successfully";
-  }
-
-  return "CAN driver reset failed";
-}
-// -----------------------------------------------------------------------------
 // CAN transmit
 // -----------------------------------------------------------------------------
 
