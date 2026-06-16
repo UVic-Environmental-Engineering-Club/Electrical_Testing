@@ -24,6 +24,16 @@ const char *FIRMWARE_VERSION = "0.3.1";
 
 #define CAN_TX_PIN 17 // CAN TX -> SN65HVD230 TXD
 #define CAN_RX_PIN 18 // CAN RX -> SN65HVD230 RXD
+
+#define DRAW_WIRE_SENSOR_POLL_INTERVAL_MS 1000 // Interval for polling the draw-wire sensor over CAN
+
+// -----------------------------------------------------------------------------
+// Free RTOS task
+// -----------------------------------------------------------------------------
+
+TaskHandle_t pollDrawWireSensorHandle = NULL; // Handle for the CAN polling task
+
+
 // -----------------------------------------------------------------------------
 // WiFi access point settings
 // -----------------------------------------------------------------------------
@@ -165,33 +175,41 @@ String resetCAN()
 // CAN transmit
 // -----------------------------------------------------------------------------
 
-String sendCANTestMessage()
+void pollDrawWireSensorTask(void *parameter)
 {
-  if (!canDriverInstalled)
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+
+  for (;;)
   {
-    return "CAN driver not started";
+    if (canDriverInstalled)
+    {
+
+      twai_message_t message = {};
+
+      message.extd = false;
+      message.identifier = 0x01;
+      message.data_length_code = 4;
+
+      message.data[0] = 0x04;
+      message.data[1] = 0x01;
+      message.data[2] = 0x01;
+      message.data[3] = 0x00;
+
+      if (twai_transmit(&message, pdMS_TO_TICKS(1000)) == ESP_OK)
+      {
+        canTxCount++;
+        Serial.println("CAN TEST message queued");
+      }
+      else
+      {
+        Serial.println("CAN TEST failed");
+      }
+    }
+    else{
+      Serial.println("CAN driver not installed, cannot poll draw-wire sensor");
+    }
+    vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(DRAW_WIRE_SENSOR_POLL_INTERVAL_MS)); // Periodic interval between messages
   }
-
-  twai_message_t message = {};
-
-  message.extd = false;
-  message.identifier = 0x01;
-  message.data_length_code = 4;
-
-  message.data[0] = 0x04;
-  message.data[1] = 0x01;
-  message.data[2] = 0x01;
-  message.data[3] = 0x00;
-
-  if (twai_transmit(&message, pdMS_TO_TICKS(1000)) == ESP_OK)
-  {
-    canTxCount++;
-    Serial.println("CAN TEST message queued");
-    return "CAN TEST sent: ID 0x01 DATA 04 01 01 00";
-  }
-
-  Serial.println("CAN TEST failed");
-  return "CAN TEST failed to queue";
 }
 
 // -----------------------------------------------------------------------------
@@ -314,18 +332,6 @@ String handleCommand(String command)
     return "EMERGENCY STOP: pump disabled and speed set to 0%";
   }
 
-  // Send a test CAN message.
-  if (command == "CAN TEST")
-  {
-    return sendCANTestMessage();
-  }
-
-  // Restart the CAN driver.
-  if (command == "CAN RESET")
-  {
-    return resetCAN();
-  }
-
   // Enable pump output.
   if (command == "PUMP ON")
   {
@@ -372,22 +378,6 @@ String handleCommand(String command)
     applyPumpState();
 
     return "Speed set to " + String(speed) + "%";
-  }
-
-  // Return current controller status.
-  if (command == "STATUS")
-  {
-    return "Firmware: " + String(FIRMWARE_NAME) +
-           "\nVersion: " + String(FIRMWARE_VERSION) +
-           "\nWiFi AP: " + String(apName) +
-           "\nConnected clients: " + String(WiFi.softAPgetStationNum()) +
-           "\nPump: " + String(pumpEnabled ? "ON" : "OFF") +
-           "\nDirection: " + String(pumpReverse ? "REVERSE" : "NORMAL") +
-           "\nSpeed: " + String(pumpSpeedPercent) + "%" +
-           "\nCAN driver: " + String(canDriverInstalled ? "STARTED" : "NOT STARTED") +
-           "\nCAN TX count: " + String(canTxCount) +
-           "\nCAN RX count: " + String(canRxCount) +
-           "\nEncoder value: " + String(encoderValue);
   }
 
   // Command not recognized.
@@ -484,10 +474,6 @@ void handleRoot()
     <button onclick="sendCommand('SPEED 100')">100%</button>
 
     <h3>CAN Bus</h3>
-<button onclick="sendCommand('CAN TEST')">CAN TEST</button>
-<button onclick="sendCommand('CAN RESET')">CAN RESET</button>
-<button onclick="sendCommand('STATUS')">CAN STATUS</button>
-
     <div class="command-row">
       <input id="cmd" type="text" placeholder="Example: CAN TEST">
       <button onclick="sendCustom()">Send</button>
@@ -650,6 +636,16 @@ void setup()
   startAccessPoint();
   startWebServer();
   startCAN();
+
+  // Create a FreeRTOS task for polling the draw-wire sensor over CAN.
+  xTaskCreate(
+      pollDrawWireSensorTask,   // Task function
+      "PollDrawWireSensor",    // Name of the task (for debugging)
+      4096,                    // Stack size in bytes
+      NULL,                    // Task input parameter (not used)
+      1,                       // Task priority (0 = lowest)
+      &pollDrawWireSensorHandle // Task handle (for later reference)
+  );
 }
 
 // -----------------------------------------------------------------------------
