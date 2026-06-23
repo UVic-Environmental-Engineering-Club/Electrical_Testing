@@ -22,8 +22,19 @@ const char *FIRMWARE_VERSION = "0.3.1";
 #define PUMP_DIRECTION_PIN 5 // Pump Direction
 #define PUMP_PWM_PIN 6       // Pump Speed (PWM -> RC filter -> 0-4V input)
 
-#define CAN_TX_PIN 17 // CAN TX -> SN65HVD230 TXD
-#define CAN_RX_PIN 18 // CAN RX -> SN65HVD230 RXD
+#define CAN_TX_PIN 43 // CAN TX -> SN65HVD230 TXD
+#define CAN_RX_PIN 44 // CAN RX -> SN65HVD230 RXD
+
+#define DRAW_WIRE_SENSOR_POLL_INTERVAL_MS 1000 // Interval for polling the draw-wire sensor over CAN
+
+// -----------------------------------------------------------------------------
+// Free RTOS task
+// -----------------------------------------------------------------------------
+
+TaskHandle_t pollDrawWireSensorHandle = NULL; // Handle for the CAN polling task
+TaskHandle_t receiveCANMessageHandle = NULL; // Handle for the CAN receive task
+
+
 // -----------------------------------------------------------------------------
 // WiFi access point settings
 // -----------------------------------------------------------------------------
@@ -137,100 +148,43 @@ bool startCAN()
 }
 
 // -----------------------------------------------------------------------------
-// CAN reset
-// Stops and reinstalls the CAN driver.
-// Useful if the CAN bus locks up or needs reinitialization.
-// -----------------------------------------------------------------------------
-
-String resetCAN()
-{
-  // Shut down existing CAN driver if running.
-  if (canDriverInstalled)
-  {
-    twai_stop();
-    twai_driver_uninstall();
-
-    canDriverInstalled = false;
-  }
-
-  // Reinitialize CAN system.
-  if (startCAN())
-  {
-    return "CAN driver reset successfully";
-  }
-
-  return "CAN driver reset failed";
-}
-// -----------------------------------------------------------------------------
 // CAN transmit
 // -----------------------------------------------------------------------------
 
-String sendCANTestMessage()
+void pollDrawWireSensorTask(void *parameter)
 {
-  if (!canDriverInstalled)
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+
+  for (;;)
   {
-    return "CAN driver not started";
-  }
+    if (canDriverInstalled)
+    {
 
-  twai_message_t message = {};
+      twai_message_t message = {};
 
-  message.extd = false;
-  message.identifier = 0x01;
-  message.data_length_code = 4;
+      message.extd = false;
+      message.identifier = 0x01;
+      message.data_length_code = 4;
 
-  message.data[0] = 0x04;
-  message.data[1] = 0x01;
-  message.data[2] = 0x01;
-  message.data[3] = 0x00;
+      message.data[0] = 0x04;
+      message.data[1] = 0x01;
+      message.data[2] = 0x01;
+      message.data[3] = 0x00;
 
-  if (twai_transmit(&message, pdMS_TO_TICKS(1000)) == ESP_OK)
-  {
-    canTxCount++;
-    Serial.println("CAN TEST message queued");
-    return "CAN TEST sent: ID 0x01 DATA 04 01 01 00";
-  }
-
-  Serial.println("CAN TEST failed");
-  return "CAN TEST failed to queue";
-}
-
-// -----------------------------------------------------------------------------
-// CAN receive
-// -----------------------------------------------------------------------------
-
-void handleCANRxMessage(twai_message_t &message)
-{
-  canRxCount++;
-
-  Serial.println("CAN message received");
-  Serial.print("ID: 0x");
-  Serial.println(message.identifier, HEX);
-
-  Serial.print("DLC: ");
-  Serial.println(message.data_length_code);
-
-  Serial.print("Data: ");
-  for (int i = 0; i < message.data_length_code; i++)
-  {
-    if (message.data[i] < 0x10)
-      Serial.print("0");
-    Serial.print(message.data[i], HEX);
-    Serial.print(" ");
-  }
-  Serial.println();
-
-  // Seb's encoder decode logic.
-  // Only decode when byte 2 indicates encoder data.
-  if (message.data_length_code >= 7 && message.data[2] == 0x01)
-  {
-    encoderValue =
-        message.data[3] |
-        (message.data[4] << 8) |
-        (message.data[5] << 16) |
-        (message.data[6] << 24);
-
-    Serial.print("Encoder value: ");
-    Serial.println(encoderValue);
+      if (twai_transmit(&message, pdMS_TO_TICKS(1000)) == ESP_OK)
+      {
+        canTxCount++;
+        Serial.println("CAN TEST message queued");
+      }
+      else
+      {
+        Serial.println("CAN TEST failed");
+      }
+    }
+    else{
+      Serial.println("CAN driver not installed, cannot poll draw-wire sensor");
+    }
+    vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(DRAW_WIRE_SENSOR_POLL_INTERVAL_MS)); // Periodic interval between messages
   }
 }
 
@@ -238,49 +192,83 @@ void handleCANRxMessage(twai_message_t &message)
 // CAN polling
 // -----------------------------------------------------------------------------
 
-void pollCAN()
+void receiveCANMessageTask(void *parameter)
 {
-  if (!canDriverInstalled)
-  {
-    return;
-  }
-
-  uint32_t alertsTriggered;
-  twai_read_alerts(&alertsTriggered, 0);
-
-  twai_status_info_t twaiStatus;
-  twai_get_status_info(&twaiStatus);
-
-  if (alertsTriggered & TWAI_ALERT_ERR_PASS)
-  {
-    Serial.println("CAN alert: controller is error passive");
-  }
-
-  if (alertsTriggered & TWAI_ALERT_BUS_ERROR)
-  {
-    Serial.println("CAN alert: bus error");
-    Serial.print("Bus error count: ");
-    Serial.println(twaiStatus.bus_error_count);
-  }
-
-  if (alertsTriggered & TWAI_ALERT_RX_QUEUE_FULL)
-  {
-    Serial.println("CAN alert: RX queue full");
-    Serial.print("RX buffered: ");
-    Serial.println(twaiStatus.msgs_to_rx);
-    Serial.print("RX missed: ");
-    Serial.println(twaiStatus.rx_missed_count);
-    Serial.print("RX overrun: ");
-    Serial.println(twaiStatus.rx_overrun_count);
-  }
-
-  if (alertsTriggered & TWAI_ALERT_RX_DATA)
-  {
-    twai_message_t message;
-
-    while (twai_receive(&message, 0) == ESP_OK)
+  for (;;){
+    if (canDriverInstalled)
     {
-      handleCANRxMessage(message);
+      uint32_t alertsTriggered;
+      twai_read_alerts(&alertsTriggered, 0);
+
+      twai_status_info_t twaiStatus;
+      twai_get_status_info(&twaiStatus);
+
+      if (alertsTriggered & TWAI_ALERT_ERR_PASS)
+      {
+        Serial.println("CAN alert: controller is error passive");
+      }
+
+      if (alertsTriggered & TWAI_ALERT_BUS_ERROR)
+      {
+        Serial.println("CAN alert: bus error");
+        Serial.print("Bus error count: ");
+        Serial.println(twaiStatus.bus_error_count);
+      }
+
+      if (alertsTriggered & TWAI_ALERT_RX_QUEUE_FULL)
+      {
+        Serial.println("CAN alert: RX queue full");
+        Serial.print("RX buffered: ");
+        Serial.println(twaiStatus.msgs_to_rx);
+        Serial.print("RX missed: ");
+        Serial.println(twaiStatus.rx_missed_count);
+        Serial.print("RX overrun: ");
+        Serial.println(twaiStatus.rx_overrun_count);
+      }
+
+      if (alertsTriggered & TWAI_ALERT_RX_DATA)
+      {
+        twai_message_t message;
+
+        while (twai_receive(&message, portMAX_DELAY) == ESP_OK)
+        {
+          canRxCount++;
+
+          Serial.println("CAN message received");
+          Serial.print("ID: 0x");
+          Serial.println(message.identifier, HEX);
+
+          Serial.print("DLC: ");
+          Serial.println(message.data_length_code);
+
+          Serial.print("Data: ");
+          for (int i = 0; i < message.data_length_code; i++)
+          {
+            if (message.data[i] < 0x10)
+              Serial.print("0");
+            Serial.print(message.data[i], HEX);
+            Serial.print(" ");
+          }
+          Serial.println();
+
+          // Seb's encoder decode logic.
+          // Only decode when byte 2 indicates encoder data.
+          if (message.data_length_code >= 7 && message.data[2] == 0x01)
+          {
+            encoderValue =
+                message.data[3] |
+                (message.data[4] << 8) |
+                (message.data[5] << 16) |
+                (message.data[6] << 24);
+
+            Serial.print("Encoder value: ");
+            Serial.println(encoderValue);
+          }
+        }
+      }
+    }
+    else{
+      Serial.println("CAN driver not installed, cannot receive messages");
     }
   }
 }
@@ -312,18 +300,6 @@ String handleCommand(String command)
     pumpSpeedPercent = 0;
     applyPumpState();
     return "EMERGENCY STOP: pump disabled and speed set to 0%";
-  }
-
-  // Send a test CAN message.
-  if (command == "CAN TEST")
-  {
-    return sendCANTestMessage();
-  }
-
-  // Restart the CAN driver.
-  if (command == "CAN RESET")
-  {
-    return resetCAN();
   }
 
   // Enable pump output.
@@ -372,22 +348,6 @@ String handleCommand(String command)
     applyPumpState();
 
     return "Speed set to " + String(speed) + "%";
-  }
-
-  // Return current controller status.
-  if (command == "STATUS")
-  {
-    return "Firmware: " + String(FIRMWARE_NAME) +
-           "\nVersion: " + String(FIRMWARE_VERSION) +
-           "\nWiFi AP: " + String(apName) +
-           "\nConnected clients: " + String(WiFi.softAPgetStationNum()) +
-           "\nPump: " + String(pumpEnabled ? "ON" : "OFF") +
-           "\nDirection: " + String(pumpReverse ? "REVERSE" : "NORMAL") +
-           "\nSpeed: " + String(pumpSpeedPercent) + "%" +
-           "\nCAN driver: " + String(canDriverInstalled ? "STARTED" : "NOT STARTED") +
-           "\nCAN TX count: " + String(canTxCount) +
-           "\nCAN RX count: " + String(canRxCount) +
-           "\nEncoder value: " + String(encoderValue);
   }
 
   // Command not recognized.
@@ -484,10 +444,6 @@ void handleRoot()
     <button onclick="sendCommand('SPEED 100')">100%</button>
 
     <h3>CAN Bus</h3>
-<button onclick="sendCommand('CAN TEST')">CAN TEST</button>
-<button onclick="sendCommand('CAN RESET')">CAN RESET</button>
-<button onclick="sendCommand('STATUS')">CAN STATUS</button>
-
     <div class="command-row">
       <input id="cmd" type="text" placeholder="Example: CAN TEST">
       <button onclick="sendCustom()">Send</button>
@@ -650,6 +606,26 @@ void setup()
   startAccessPoint();
   startWebServer();
   startCAN();
+
+  // Create a FreeRTOS task for polling the draw-wire sensor over CAN.
+  xTaskCreate(
+      pollDrawWireSensorTask,   // Task function
+      "PollDrawWireSensor",    // Name of the task (for debugging)
+      4096,                    // Stack size in bytes
+      NULL,                    // Task input parameter (not used)
+      1,                       // Task priority (0 = lowest)
+      &pollDrawWireSensorHandle // Task handle (for later reference)
+  );
+
+  // Create a FreeRTOS task for receiving CAN messages.
+  xTaskCreate(
+      receiveCANMessageTask,   // Task function
+      "ReceiveCANMessage",    // Name of the task (for debugging)
+      4096,                    // Stack size in bytes
+      NULL,                    // Task input parameter (not used)
+      1,                       // Task priority (0 = lowest)
+      &receiveCANMessageHandle // Task handle (for later reference)
+  );
 }
 
 // -----------------------------------------------------------------------------
@@ -659,5 +635,4 @@ void setup()
 void loop()
 {
   server.handleClient();
-  pollCAN();
 }
