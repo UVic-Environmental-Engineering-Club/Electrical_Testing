@@ -25,7 +25,9 @@ const char *FIRMWARE_VERSION = "0.3.1";
 #define CAN_TX_PIN 43 // CAN TX -> SN65HVD230 TXD
 #define CAN_RX_PIN 44 // CAN RX -> SN65HVD230 RXD
 
-#define DRAW_WIRE_SENSOR_POLL_INTERVAL_MS 1000 // Interval for polling the draw-wire sensor over CAN
+//#define DRAW_WIRE_SENSOR_POLL_INTERVAL_MS 1000 // Interval for polling the draw-wire sensor over CAN
+#define DRAW_WIRE_SENSOR_POLL_INTERVAL_MS 10
+#define CONTROL_LOOP_INTERVAL_MS 10
 
 // thomas code
 // global vars for PID loop logic
@@ -235,7 +237,8 @@ void receiveCANMessageTask(void *parameter)
       {
         twai_message_t message;
 
-        while (twai_receive(&message, portMAX_DELAY) == ESP_OK)
+        //while (twai_receive(&message, portMAX_DELAY) == ESP_OK)
+        while (twai_receive(&message, 0) == ESP_OK)
         {
           canRxCount++;
 
