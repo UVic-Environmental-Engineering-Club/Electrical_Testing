@@ -27,6 +27,11 @@ const char *FIRMWARE_VERSION = "0.3.1";
 
 #define DRAW_WIRE_SENSOR_POLL_INTERVAL_MS 1000 // Interval for polling the draw-wire sensor over CAN
 
+// thomas code
+// global vars for PID loop logic
+int ballastPostion = 0; // current position of the ballast
+
+
 // -----------------------------------------------------------------------------
 // Free RTOS task
 // -----------------------------------------------------------------------------
