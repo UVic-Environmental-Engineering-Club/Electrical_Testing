@@ -30,8 +30,19 @@ const char *FIRMWARE_VERSION = "0.3.1";
 #define CONTROL_LOOP_INTERVAL_MS 10
 
 // thomas code
-// global vars for PID loop logic
-int ballastPostion = 0; // current position of the ballast
+#define BALLAST_MAX_POSITION 100 // maximum position of the ballast
+#define BALLAST_MIN_POSITION 0 // minimum position of the ballast
+#define BALLAST_TARGET_POSITION 50 // target position of the ballast // this needs to be set by the user or some other logic
+
+int ballastPostion = 0; // current position of the ballast -- this needs to be updated from the encoder value
+
+int integral = 0; // integral term to accumulate error over time
+int previousError = 0; // previous error value for derivative calculation
+
+int kp = 1; // proportional gain
+int ki = 0; // integral gain
+int kd = 0; // derivative gain
+int dt = CONTROL_LOOP_INTERVAL_MS; // time step in milliseconds
 
 
 // -----------------------------------------------------------------------------
@@ -196,6 +207,33 @@ void pollDrawWireSensorTask(void *parameter)
 }
 
 // -----------------------------------------------------------------------------
+// PID control
+// -----------------------------------------------------------------------------
+void pidBallastControl(int encoderValue, int targetValue, int integral, int previousError, int dt)
+{
+  int error = targetValue - encoderValue;
+
+  // proportional term
+  int p = kp * error;
+
+  // integral term
+  integral += error * dt;
+  integral = constrain(integral, BALLAST_MIN_POSITION, BALLAST_MAX_POSITION); // limit integral to prevent windup
+  int i = ki * integral;
+
+  // derivative term
+  int derivative = (error - previousError) / dt;
+  int d = kd * derivative;
+
+  // PID output
+  int output = p + i + d;
+  output = constrain(output, BALLAST_MIN_POSITION, BALLAST_MAX_POSITION); // limit output to valid range
+
+  //update previous error for next iteration
+  previousError = error;
+}
+  
+// -----------------------------------------------------------------------------
 // CAN polling
 // -----------------------------------------------------------------------------
 
@@ -238,8 +276,8 @@ void receiveCANMessageTask(void *parameter)
         twai_message_t message;
 
         //while (twai_receive(&message, portMAX_DELAY) == ESP_OK)
-        while (twai_receive(&message, 0) == ESP_OK)
-        {
+        while (twai_receive(&message, 0) == ESP_OK){
+
           canRxCount++;
 
           Serial.println("CAN message received");
@@ -271,6 +309,8 @@ void receiveCANMessageTask(void *parameter)
 
             Serial.print("Encoder value: ");
             Serial.println(encoderValue);
+
+            pidBallastControl(encoderValue, BALLAST_TARGET_POSITION, integral, previousError, dt);
           }
         }
       }
