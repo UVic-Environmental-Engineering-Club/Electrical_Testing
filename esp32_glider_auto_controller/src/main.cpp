@@ -32,18 +32,18 @@ const char *FIRMWARE_VERSION = "0.3.1";
 // thomas code
 #define BALLAST_MAX_POSITION 100 // maximum position of the ballast
 #define BALLAST_MIN_POSITION 0 // minimum position of the ballast
-#define BALLAST_TARGET_POSITION 50 // target position of the ballast // this needs to be set by the user or some other logic
+#define BALLAST_TARGET_POSITION 50 // target position of the ballast -- this needs to be set by the user or some other logic
 
 int ballastPostion = 0; // current position of the ballast -- this needs to be updated from the encoder value
 
 int integral = 0; // integral term to accumulate error over time
 int previousError = 0; // previous error value for derivative calculation
 
+// PID control parameters -- NEEDS TO BE TUNED FOR THE SYSTEM
 int kp = 1; // proportional gain
 int ki = 0; // integral gain
 int kd = 0; // derivative gain
 int dt = CONTROL_LOOP_INTERVAL_MS; // time step in milliseconds
-
 
 // -----------------------------------------------------------------------------
 // Free RTOS task
@@ -231,6 +231,8 @@ void pidBallastControl(int encoderValue, int targetValue, int integral, int prev
 
   //update previous error for next iteration
   previousError = error;
+
+  // need to add code to send the output to the pump controller or whatever actuator is being used to adjust the ballast position
 }
   
 // -----------------------------------------------------------------------------
