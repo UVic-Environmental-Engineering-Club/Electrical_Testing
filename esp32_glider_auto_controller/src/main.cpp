@@ -81,9 +81,7 @@ const int pwmResolution = 10;  // PWM resolution in bits (10-bit = 0-1023)
 // System state
 // -----------------------------------------------------------------------------
 
-int pumpSpeedPercent = 0;        // Current pump speed command (0-100%)
-bool pumpEnabled = false;        // True = pump enabled, False = pump disabled
-bool pumpReverse = false;        // True = reverse direction, False = normal direction
+bool pumpEnabled = true;        // True = pump enabled, False = pump disabled
 bool canDriverInstalled = false; // True when CAN/TWAI driver is running
 uint32_t encoderValue = 0;       // Latest encoder value received from CAN bus
 uint32_t canRxCount = 0;         // Total CAN messages received
@@ -91,28 +89,8 @@ uint32_t canTxCount = 0;         // Total CAN messages transmitted
 
 // -----------------------------------------------------------------------------
 // Pump control
-// Updates the physical pump control outputs based on the current software state.
+// Updates the physical pump control outputs
 // -----------------------------------------------------------------------------
-
-void applyPumpState()
-{
-  // Enable/disable pump controller.
-  // HIGH = enabled
-  // LOW  = disabled
-  digitalWrite(PUMP_ENABLE_PIN, pumpEnabled ? HIGH : LOW);
-
-  // Set pump direction.
-  // HIGH = normal direction
-  // LOW  = reverse direction
-  digitalWrite(PUMP_DIRECTION_PIN, pumpReverse ? LOW : HIGH);
-
-  // Convert speed command from:
-  //   0-100%  -->  0-1023 PWM duty cycle
-  int duty = map(pumpSpeedPercent, 0, 100, pwmMinDuty, pwmMaxDuty);
-
-  // Output PWM speed command to the pump controller.
-  ledcWrite(pwmChannel, duty);
-}
 
 void setPumpState(int pumpEnabled, int pumpPWM, int pumpReverse)
 {
@@ -346,8 +324,13 @@ void receiveCANMessageTask(void *parameter)
             
             //Map the target fill percentage to a target encoder value
             int target_value = map(ballest_tank_target_fill_percent, 0, 100, BALLAST_MIN_POSITION, BALLAST_MAX_POSITION);
-
-            pidBallastControl(encoderValue, target_value, integral, previousError, dt);
+            if(pumpEnabled)
+            {
+              pidBallastControl(encoderValue, target_value, integral, previousError, dt);
+            }else
+            {
+              setPumpState(0,0,0);
+            }
           }
         }
       }
@@ -382,8 +365,7 @@ String handleCommand(String command)
   if (command == "KILL")
   {
     pumpEnabled = false;
-    pumpSpeedPercent = 0;
-    applyPumpState();
+    setPumpState(0,0,0);
     return "EMERGENCY STOP: pump disabled and speed set to 0%";
   }
 
@@ -391,32 +373,7 @@ String handleCommand(String command)
   if (command == "PUMP ON")
   {
     pumpEnabled = true;
-    applyPumpState();
     return "Pump enabled";
-  }
-
-  // Disable pump output.
-  if (command == "PUMP OFF")
-  {
-    pumpEnabled = false;
-    applyPumpState();
-    return "Pump disabled";
-  }
-
-  // Set pump direction to normal/forward.
-  if (command == "DIR NORMAL")
-  {
-    pumpReverse = false;
-    applyPumpState();
-    return "Direction set to NORMAL";
-  }
-
-  // Set pump direction to reverse.
-  if (command == "DIR REVERSE")
-  {
-    pumpReverse = true;
-    applyPumpState();
-    return "Direction set to REVERSE";
   }
 
   // Set pump speed percentage.
@@ -512,14 +469,8 @@ void handleRoot()
     <h1>ESP32 Glider Controller</h1>
 
     <button onclick="sendCommand('PING')">PING</button>
-    <button onclick="sendCommand('STATUS')">STATUS</button>
     <button onclick="sendCommand('KILL')">KILL</button>
-
-    <h3>Pump Controls</h3>
     <button onclick="sendCommand('PUMP ON')">PUMP ON</button>
-    <button onclick="sendCommand('PUMP OFF')">PUMP OFF</button>
-    <button onclick="sendCommand('DIR NORMAL')">NORMAL</button>
-    <button onclick="sendCommand('DIR REVERSE')">REVERSE</button>
 
     <h3>Fill %</h3>
     <button onclick="sendCommand('SPEED 0')">0%</button>
@@ -527,12 +478,6 @@ void handleRoot()
     <button onclick="sendCommand('SPEED 50')">50%</button>
     <button onclick="sendCommand('SPEED 75')">75%</button>
     <button onclick="sendCommand('SPEED 100')">100%</button>
-
-    <h3>CAN Bus</h3>
-    <div class="command-row">
-      <input id="cmd" type="text" placeholder="Example: CAN TEST">
-      <button onclick="sendCustom()">Send</button>
-    </div>
 
     <div id="log">ESP32 glider console ready.</div>
   </div>
@@ -680,13 +625,6 @@ void setup()
 
   ledcSetup(pwmChannel, pwmFrequency, pwmResolution);
   ledcAttachPin(PUMP_PWM_PIN, pwmChannel);
-
-  // Start in a safe state.
-  pumpEnabled = false;
-  pumpReverse = false;
-  pumpSpeedPercent = 0;
-
-  applyPumpState();
 
   startAccessPoint();
   startWebServer();
