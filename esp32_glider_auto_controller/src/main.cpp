@@ -32,7 +32,8 @@ const char *FIRMWARE_VERSION = "0.3.1";
 // thomas code
 #define BALLAST_MIN_POSITION 35761 // maximum position of the ballast
 #define BALLAST_MAX_POSITION 24794 // minimum position of the ballast
-#define BALLAST_TARGET_FILL_PERCENT 25 // target position of the ballast -- this needs to be set by the user or some other logic
+//#define BALLAST_TARGET_FILL_PERCENT 25 // target position of the ballast -- this needs to be set by the user or some other logic
+int ballest_tank_target_fill_percent = 50;
 
 int ballastPostion = 0; // current position of the ballast -- this needs to be updated from the encoder value
 
@@ -40,7 +41,7 @@ int integral = 0; // integral term to accumulate error over time
 int previousError = 0; // previous error value for derivative calculation
 
 // PID control parameters -- NEEDS TO BE TUNED FOR THE SYSTEM
-float kp = 0.3; // proportional gain
+float kp = 1; // proportional gain
 float ki = 0; // integral gain
 float kd = 0; // derivative gain
 int dt = CONTROL_LOOP_INTERVAL_MS; // time step in milliseconds
@@ -73,7 +74,7 @@ WebServer server(80); // Web server listening on HTTP port 80
 const int pwmChannel = 0;      // ESP32 PWM generator/channel number
 const int pwmFrequency = 5000; // PWM frequency in Hz (pump controller supports 1-25 kHz)
 const int pwmResolution = 10;  // PWM resolution in bits (10-bit = 0-1023)
-#define pwmMinDuty 400
+#define pwmMinDuty 300
 #define pwmMaxDuty 1023   // Maximum duty cycle value for 10-bit PWM
 
 // -----------------------------------------------------------------------------
@@ -128,7 +129,7 @@ void setPumpState(int pumpEnabled, int pumpPWM, int pumpReverse)
   // Output PWM speed command to the pump controller.
   ledcWrite(pwmChannel, pumpPWM);
 
-  Serial.println("Pump Direction: " + String(pumpReverse ? "REVERSE" : "NORMAL") + ", Speed: " + String(pumpPWM) + ", Enabled: " + String(pumpEnabled ? "YES" : "NO"));
+  Serial.println("Speed: " + String(pumpPWM));
 }
 
 // -----------------------------------------------------------------------------
@@ -237,9 +238,9 @@ void pidBallastControl(int encoderValue, int targetValue, int integral, int prev
 {
   int error = targetValue - encoderValue;
 
-  Serial.print("Encoder Value: " + String(encoderValue));
-  Serial.print(" - Target Value: " + String(targetValue));
-  Serial.println(" - Error: " + String(error));
+  //Serial.print("Encoder Value: " + String(encoderValue));
+  //Serial.print(" - Target Value: " + String(targetValue));
+  Serial.println("Error: " + String(error));
 
   // proportional term
   int p = kp * error;
@@ -258,7 +259,7 @@ void pidBallastControl(int encoderValue, int targetValue, int integral, int prev
 
 
 
-  setPumpState((abs(output) >= DEADBAND),constrain(abs(output), pwmMinDuty, pwmMaxDuty),(output <= 0));
+  setPumpState((abs(error) >= DEADBAND),constrain(abs(output), pwmMinDuty, pwmMaxDuty),(output <= 0));
 
   //update previous error for next iteration
   previousError = error;
@@ -344,7 +345,7 @@ void receiveCANMessageTask(void *parameter)
             //Serial.println(encoderValue);
             
             //Map the target fill percentage to a target encoder value
-            int target_value = map(BALLAST_TARGET_FILL_PERCENT, 0, 100, BALLAST_MIN_POSITION, BALLAST_MAX_POSITION);
+            int target_value = map(ballest_tank_target_fill_percent, 0, 100, BALLAST_MIN_POSITION, BALLAST_MAX_POSITION);
 
             pidBallastControl(encoderValue, target_value, integral, previousError, dt);
           }
@@ -426,10 +427,10 @@ String handleCommand(String command)
     int speed = command.substring(6).toInt();
 
     // Limit speed to valid range.
-    speed = constrain(speed, 0, 100);
+    ballest_tank_target_fill_percent = constrain(speed, 0, 100);
 
-    pumpSpeedPercent = speed;
-    applyPumpState();
+    //pumpSpeedPercent = speed;
+    //applyPumpState();
 
     return "Speed set to " + String(speed) + "%";
   }
@@ -520,7 +521,7 @@ void handleRoot()
     <button onclick="sendCommand('DIR NORMAL')">NORMAL</button>
     <button onclick="sendCommand('DIR REVERSE')">REVERSE</button>
 
-    <h3>Speed</h3>
+    <h3>Fill %</h3>
     <button onclick="sendCommand('SPEED 0')">0%</button>
     <button onclick="sendCommand('SPEED 25')">25%</button>
     <button onclick="sendCommand('SPEED 50')">50%</button>
