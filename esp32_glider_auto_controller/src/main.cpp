@@ -26,13 +26,13 @@ const char *FIRMWARE_VERSION = "0.3.1";
 #define CAN_RX_PIN 44 // CAN RX -> SN65HVD230 RXD
 
 //#define DRAW_WIRE_SENSOR_POLL_INTERVAL_MS 1000 // Interval for polling the draw-wire sensor over CAN
-#define DRAW_WIRE_SENSOR_POLL_INTERVAL_MS 10
-#define CONTROL_LOOP_INTERVAL_MS 10
+#define DRAW_WIRE_SENSOR_POLL_INTERVAL_MS 500
+#define CONTROL_LOOP_INTERVAL_MS 500
 
 // thomas code
-#define BALLAST_MAX_POSITION 100 // maximum position of the ballast
-#define BALLAST_MIN_POSITION 0 // minimum position of the ballast
-#define BALLAST_TARGET_POSITION 50 // target position of the ballast -- this needs to be set by the user or some other logic
+#define BALLAST_MIN_POSITION 35761 // maximum position of the ballast
+#define BALLAST_MAX_POSITION 24794 // minimum position of the ballast
+#define BALLAST_TARGET_FILL_PERCENT 25 // target position of the ballast -- this needs to be set by the user or some other logic
 
 int ballastPostion = 0; // current position of the ballast -- this needs to be updated from the encoder value
 
@@ -40,10 +40,15 @@ int integral = 0; // integral term to accumulate error over time
 int previousError = 0; // previous error value for derivative calculation
 
 // PID control parameters -- NEEDS TO BE TUNED FOR THE SYSTEM
-int kp = 1; // proportional gain
-int ki = 0; // integral gain
-int kd = 0; // derivative gain
+float kp = 0.3; // proportional gain
+float ki = 0; // integral gain
+float kd = 0; // derivative gain
 int dt = CONTROL_LOOP_INTERVAL_MS; // time step in milliseconds
+
+#define DEADBAND 40
+
+//#define empty_encoder_value 35761
+//#define full_encoder value 24794
 
 // -----------------------------------------------------------------------------
 // Free RTOS task
@@ -68,7 +73,8 @@ WebServer server(80); // Web server listening on HTTP port 80
 const int pwmChannel = 0;      // ESP32 PWM generator/channel number
 const int pwmFrequency = 5000; // PWM frequency in Hz (pump controller supports 1-25 kHz)
 const int pwmResolution = 10;  // PWM resolution in bits (10-bit = 0-1023)
-const int pwmMaxDuty = 1023;   // Maximum duty cycle value for 10-bit PWM
+#define pwmMinDuty 400
+#define pwmMaxDuty 1023   // Maximum duty cycle value for 10-bit PWM
 
 // -----------------------------------------------------------------------------
 // System state
@@ -101,10 +107,28 @@ void applyPumpState()
 
   // Convert speed command from:
   //   0-100%  -->  0-1023 PWM duty cycle
-  int duty = map(pumpSpeedPercent, 0, 100, 0, pwmMaxDuty);
+  int duty = map(pumpSpeedPercent, 0, 100, pwmMinDuty, pwmMaxDuty);
 
   // Output PWM speed command to the pump controller.
   ledcWrite(pwmChannel, duty);
+}
+
+void setPumpState(int pumpEnabled, int pumpPWM, int pumpReverse)
+{
+  // Enable/disable pump controller.
+  // HIGH = enabled
+  // LOW  = disabled
+  digitalWrite(PUMP_ENABLE_PIN, pumpEnabled ? HIGH : LOW);
+
+  // Set pump direction.
+  // HIGH = normal direction
+  // LOW  = reverse direction
+  digitalWrite(PUMP_DIRECTION_PIN, pumpReverse ? LOW : HIGH);
+
+  // Output PWM speed command to the pump controller.
+  ledcWrite(pwmChannel, pumpPWM);
+
+  Serial.println("Pump Direction: " + String(pumpReverse ? "REVERSE" : "NORMAL") + ", Speed: " + String(pumpPWM) + ", Enabled: " + String(pumpEnabled ? "YES" : "NO"));
 }
 
 // -----------------------------------------------------------------------------
@@ -192,7 +216,7 @@ void pollDrawWireSensorTask(void *parameter)
       if (twai_transmit(&message, pdMS_TO_TICKS(1000)) == ESP_OK)
       {
         canTxCount++;
-        Serial.println("CAN TEST message queued");
+        //Serial.println("CAN TEST message queued");
       }
       else
       {
@@ -213,12 +237,16 @@ void pidBallastControl(int encoderValue, int targetValue, int integral, int prev
 {
   int error = targetValue - encoderValue;
 
+  Serial.print("Encoder Value: " + String(encoderValue));
+  Serial.print(" - Target Value: " + String(targetValue));
+  Serial.println(" - Error: " + String(error));
+
   // proportional term
   int p = kp * error;
 
   // integral term
   integral += error * dt;
-  integral = constrain(integral, BALLAST_MIN_POSITION, BALLAST_MAX_POSITION); // limit integral to prevent windup
+  //integral = constrain(integral, BALLAST_MIN_POSITION, BALLAST_MAX_POSITION); // limit integral to prevent windup
   int i = ki * integral;
 
   // derivative term
@@ -227,12 +255,14 @@ void pidBallastControl(int encoderValue, int targetValue, int integral, int prev
 
   // PID output
   int output = p + i + d;
-  output = constrain(output, BALLAST_MIN_POSITION, BALLAST_MAX_POSITION); // limit output to valid range
+
+
+
+  setPumpState((abs(output) >= DEADBAND),constrain(abs(output), pwmMinDuty, pwmMaxDuty),(output <= 0));
 
   //update previous error for next iteration
   previousError = error;
-
-  // need to add code to send the output to the pump controller or whatever actuator is being used to adjust the ballast position
+  
 }
   
 // -----------------------------------------------------------------------------
@@ -278,10 +308,10 @@ void receiveCANMessageTask(void *parameter)
         twai_message_t message;
 
         //while (twai_receive(&message, portMAX_DELAY) == ESP_OK)
-        while (twai_receive(&message, 0) == ESP_OK){
+        while (twai_receive(&message, 10) == ESP_OK){
 
           canRxCount++;
-
+          /*
           Serial.println("CAN message received");
           Serial.print("ID: 0x");
           Serial.println(message.identifier, HEX);
@@ -298,6 +328,7 @@ void receiveCANMessageTask(void *parameter)
             Serial.print(" ");
           }
           Serial.println();
+          */
 
           // Seb's encoder decode logic.
           // Only decode when byte 2 indicates encoder data.
@@ -309,10 +340,13 @@ void receiveCANMessageTask(void *parameter)
                 (message.data[5] << 16) |
                 (message.data[6] << 24);
 
-            Serial.print("Encoder value: ");
-            Serial.println(encoderValue);
+            //Serial.print("Encoder value: ");
+            //Serial.println(encoderValue);
+            
+            //Map the target fill percentage to a target encoder value
+            int target_value = map(BALLAST_TARGET_FILL_PERCENT, 0, 100, BALLAST_MIN_POSITION, BALLAST_MAX_POSITION);
 
-            pidBallastControl(encoderValue, BALLAST_TARGET_POSITION, integral, previousError, dt);
+            pidBallastControl(encoderValue, target_value, integral, previousError, dt);
           }
         }
       }
