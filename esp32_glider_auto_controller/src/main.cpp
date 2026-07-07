@@ -235,8 +235,6 @@ void pidBallastControl(int encoderValue, int targetValue, int integral, int prev
   // PID output
   int output = p + i + d;
 
-
-
   setPumpState((abs(error) >= DEADBAND),constrain(abs(output), pwmMinDuty, pwmMaxDuty),(output <= 0));
 
   //update previous error for next iteration
