@@ -356,7 +356,6 @@ void receiveCANMessageTask(void *parameter)
     }
   }
 }
-
 // -----------------------------------------------------------------------------
 // Command handling
 // Processes commands received from the web interface.
@@ -375,7 +374,6 @@ String handleCommand(String command)
   // Simple communication test.
   if (command == "PING")
     return "PONG";
-
   // Software emergency stop.
   // Disables pump and sets speed command to 0%.
   if (command == "KILL")
