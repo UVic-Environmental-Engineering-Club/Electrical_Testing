@@ -48,6 +48,13 @@ int dt = CONTROL_LOOP_INTERVAL_MS; // time step in milliseconds
 
 #define DEADBAND 40
 
+int decendFillPercent = 75;
+int ascendFillPercent = 25;
+
+int decentTime = 30000; // time in milliseconds to decend to the target fill percent
+
+int testRunning = false;
+
 //#define empty_encoder_value 35761
 //#define full_encoder value 24794
 
@@ -57,6 +64,7 @@ int dt = CONTROL_LOOP_INTERVAL_MS; // time step in milliseconds
 
 TaskHandle_t pollDrawWireSensorHandle = NULL; // Handle for the CAN polling task
 TaskHandle_t receiveCANMessageHandle = NULL; // Handle for the CAN receive task
+TaskHandle_t testRoutineHandle = NULL; // Handle for the CAN receive task
 
 
 // -----------------------------------------------------------------------------
@@ -107,7 +115,7 @@ void setPumpState(int pumpEnabled, int pumpPWM, int pumpReverse)
   // Output PWM speed command to the pump controller.
   ledcWrite(pwmChannel, pumpPWM);
 
-  Serial.println("Speed: " + String(pumpPWM));
+  //Serial.println("Speed: " + String(pumpPWM));
 }
 
 // -----------------------------------------------------------------------------
@@ -168,6 +176,15 @@ bool startCAN()
   return true;
 }
 
+void testRoutine(void *parameter)
+{
+  ballest_tank_target_fill_percent = decendFillPercent;
+  delay(decentTime);
+  ballest_tank_target_fill_percent = ascendFillPercent;
+  //End task
+  testRoutineHandle = NULL;
+  vTaskDelete(NULL);
+}
 // -----------------------------------------------------------------------------
 // CAN transmit
 // -----------------------------------------------------------------------------
@@ -218,7 +235,7 @@ void pidBallastControl(int encoderValue, int targetValue, int integral, int prev
 
   //Serial.print("Encoder Value: " + String(encoderValue));
   //Serial.print(" - Target Value: " + String(targetValue));
-  Serial.println("Error: " + String(error));
+  //Serial.println("Error: " + String(error));
 
   // proportional term
   int p = kp * error;
@@ -324,6 +341,7 @@ void receiveCANMessageTask(void *parameter)
             
             //Map the target fill percentage to a target encoder value
             int target_value = map(ballest_tank_target_fill_percent, 0, 100, BALLAST_MIN_POSITION, BALLAST_MAX_POSITION);
+            Serial.println(ballest_tank_target_fill_percent);
             if(pumpEnabled)
             {
               pidBallastControl(encoderValue, target_value, integral, previousError, dt);
@@ -367,6 +385,25 @@ String handleCommand(String command)
     pumpEnabled = false;
     setPumpState(0,0,0);
     return "EMERGENCY STOP: pump disabled and speed set to 0%";
+  }
+
+  if (command == "START TEST")
+  {
+    if(testRoutineHandle == NULL)
+    {
+      xTaskCreatePinnedToCore(
+        testRoutine,          // Function to implement the task
+        "testRoutine",       // Name of the task
+        4096,                // Stack size in words
+        NULL,                // Task input parameter
+        1,                   // Priority of the task
+        &testRoutineHandle,  // Task handle.
+        0);                  // Core where the task should run
+      return "Test routine started: descent fill";
+    }
+    else{
+      return "Test routine already running";
+    }
   }
 
   // Enable pump output.
@@ -471,6 +508,9 @@ void handleRoot()
     <button onclick="sendCommand('PING')">PING</button>
     <button onclick="sendCommand('KILL')">KILL</button>
     <button onclick="sendCommand('PUMP ON')">PUMP ON</button>
+
+    <h3>Test Routine</h3>
+    <button onclick="sendCommand('START TEST')">START TEST</button>
 
     <h3>Fill %</h3>
     <button onclick="sendCommand('SPEED 0')">0%</button>
