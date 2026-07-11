@@ -32,8 +32,7 @@ const char *FIRMWARE_VERSION = "0.3.1";
 // thomas code
 #define BALLAST_MIN_POSITION 35761 // maximum position of the ballast
 #define BALLAST_MAX_POSITION 24794 // minimum position of the ballast
-//#define BALLAST_TARGET_FILL_PERCENT 25 // target position of the ballast -- this needs to be set by the user or some other logic
-int ballest_tank_target_fill_percent = 50;
+int ballest_tank_target_fill_percent = 10;
 
 int ballastPostion = 0; // current position of the ballast -- this needs to be updated from the encoder value
 
@@ -48,9 +47,8 @@ int dt = CONTROL_LOOP_INTERVAL_MS; // time step in milliseconds
 
 #define DEADBAND 40
 
-int decendFillPercent = 75;
-int ascendFillPercent = 25;
-
+int decendFillPercent = 10;
+int ascendFillPercent = 10;
 int decentTime = 30000; // time in milliseconds to decend to the target fill percent
 
 int testRunning = false;
@@ -388,7 +386,7 @@ String handleCommand(String command)
     if(testRoutineHandle == NULL)
     {
       xTaskCreatePinnedToCore(
-        testRoutine,          // Function to implement the task
+        testRoutine,         // Function to implement the task
         "testRoutine",       // Name of the task
         4096,                // Stack size in words
         NULL,                // Task input parameter
@@ -425,9 +423,56 @@ String handleCommand(String command)
     return "Speed set to " + String(speed) + "%";
   }
 
+  // Set fill cycle parameters.
+  // Example:
+  //   CYCLE 75 30 25
+  if (command.startsWith("CYCLE "))
+  {
+    // Split the command into parts.
+    int firstSpace = command.indexOf(' ');
+    int secondSpace = command.indexOf(' ', firstSpace + 1);
+    int thirdSpace = command.indexOf(' ', secondSpace + 1);
+
+    if (firstSpace == -1 || secondSpace == -1 || thirdSpace == -1)
+      return "Invalid CYCLE command format. Expected: CYCLE <descent_fill> <wait_time> <ascent_fill>";
+
+    // Parse the parameters.
+    int descentFill = command.substring(firstSpace + 1, secondSpace).toInt();
+    int waitTime = command.substring(secondSpace + 1, thirdSpace).toInt();
+    int ascentFill = command.substring(thirdSpace + 1).toInt();
+
+    // Validate parameters.
+    if (descentFill < 0 || descentFill > 100 || ascentFill < 0 || ascentFill > 100 || waitTime < 0)
+      return "Invalid CYCLE parameters. Fill percentages must be between 0-100 and wait time must be non-negative.";
+    
+    // Set the parameters for the fill cycle.
+    decendFillPercent = descentFill;
+    decentTime = waitTime * 1000; // Convert seconds to milliseconds
+    ascendFillPercent = ascentFill;
+
+    if(testRoutineHandle == NULL)
+    {
+      xTaskCreatePinnedToCore(
+        testRoutine,         // Function to implement the task
+        "testRoutine",       // Name of the task
+        4096,                // Stack size in words
+        NULL,                // Task input parameter
+        1,                   // Priority of the task
+        &testRoutineHandle,  // Task handle.
+        0);                  // Core where the task should run
+      return "Test routine started: descent fill";
+    }
+    else{
+      return "Test routine already running";
+    }
+    
+  return "Fill cycle set: Descent Fill " + String(descentFill) + "%, Wait Time " + String(waitTime) + "s, Ascent Fill " + String(ascentFill) + "%";
+  }
+
   // Command not recognized.
   return "Unknown command: " + command;
 }
+
 // -----------------------------------------------------------------------------
 // Web page
 // -----------------------------------------------------------------------------
@@ -494,6 +539,31 @@ void handleRoot()
       margin-top: 24px;
       margin-bottom: 8px;
     }
+
+    .input-row { 
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 10px;
+      margin-bottom: 20px;
+    }
+
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex: 1;
+    }
+
+    .input-group label {
+      margin-bottom: 8px;
+      font-weight: bold;
+    }
+
+    .input-group input {
+      width: 100px;
+      text-align: center;
+    }
   </style>
 </head>
 
@@ -505,9 +575,24 @@ void handleRoot()
     <button onclick="sendCommand('KILL')">KILL</button>
     <button onclick="sendCommand('PUMP ON')">PUMP ON</button>
 
-    <h3>Test Routine</h3>
-    <button onclick="sendCommand('START TEST')">START TEST</button>
-// 
+    <h3>Variable Input</h3>
+    <div class="input-row">
+      <div class="input-group">
+        <label for="descentFill">Descent Fill %</label>
+        <input type="number" id="descentFill" min="0" max="100" value="0">
+      </div>
+      <div class="input-group">
+        <label for="waitTime">Wait Time (s)</label>
+        <input type="number" id="waitTime" min="0" value="0">
+      </div>
+      <div class="input-group">
+        <label for="ascentFill">Ascent Fill %</label>
+        <input type="number" id="ascentFill" min="0" max="100" value="0">
+      </div>
+    </div>
+
+    <button onclick="sendFillCycle()">START CYCLE</button>
+
     <h3>Fill %</h3>
     <button onclick="sendCommand('SPEED 0')">0%</button>
     <button onclick="sendCommand('SPEED 25')">25%</button>
@@ -532,6 +617,14 @@ void handleRoot()
         .then(response => response.text())
         .then(data => appendLog(data))
         .catch(error => appendLog("Error: " + error));
+    }
+
+    function sendFillCycle() {
+      const descent = document.getElementById("descentFill").value;
+      const wait = document.getElementById("waitTime").value;
+      const ascent = document.getElementById("ascentFill").value;
+      const command = `CYCLE ${descent} ${wait} ${ascent}`;
+      sendCommand(command);
     }
 
     function sendCustom() {
