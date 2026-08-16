@@ -64,8 +64,8 @@ all: main-build
 main-build: ROS2_test.elf secondary-outputs
 
 # Tool invocations
-ROS2_test.elf ROS2_test.map: $(OBJS) $(USER_OBJS) /Users/sebastien/git/uveec/Electrical_Testing/ROS2_test/ROS2_test/STM32F446ZETX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "ROS2_test.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"/Users/sebastien/git/uveec/Electrical_Testing/ROS2_test/ROS2_test/STM32F446ZETX_FLASH.ld" --specs=nosys.specs -Wl,-Map="ROS2_test.map" -Wl,--gc-sections -static -L"/Users/sebastien/git/uveec/Electrical_Testing/ROS2_test/ROS2_test/micro_ros_stm32cubemx_utils/microros_static_library_ide/libmicroros" --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+ROS2_test.elf ROS2_test.map: $(OBJS) $(USER_OBJS) /Users/sebastien/git/uveec/Electrical_Testing/ROS2_test/STM32F446ZETX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "ROS2_test.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"/Users/sebastien/git/uveec/Electrical_Testing/ROS2_test/STM32F446ZETX_FLASH.ld" --specs=nosys.specs -Wl,-Map="ROS2_test.map" -Wl,--gc-sections -static -L"/Users/sebastien/git/uveec/Electrical_Testing/ROS2_test/micro_ros_stm32cubemx_utils/microros_static_library_ide/libmicroros" --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

@@ -31,6 +31,8 @@
 #include <rmw_microros/rmw_microros.h>
 
 #include <std_msgs/msg/int32.h>
+
+#include <sys/time.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -77,6 +79,9 @@ void StartDefaultTask(void *argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+/* Variable to monitor incoming data in STM32CubeIDE Live Expressions */
+volatile int32_t last_received_msg_data = 0;
 
 /* USER CODE END 0 */
 
@@ -285,6 +290,34 @@ void * microros_allocate(size_t size, void * state);
 void microros_deallocate(void * pointer, void * state);
 void * microros_reallocate(void * pointer, size_t size, void * state);
 void * microros_zero_allocate(size_t number_of_elements, size_t size_of_element, void * state);
+
+// Subscriber callback
+void subscription_callback(const void * msgin)
+{
+  // Cast received message to the proper type
+  const std_msgs__msg__Int32 * msg = (const std_msgs__msg__Int32 *)msgin;
+
+  // Store the received data to our global variable for debugging
+  last_received_msg_data = msg->data;
+
+  // You can also use printf here if ITM/UART redirection is configured
+  // printf("Received: %d\n", (int)msg->data);
+}
+
+// Dummy implementation of _gettimeofday for micro-ROS/Newlib
+int _gettimeofday(struct timeval *tv, void *tzvp)
+{
+    // Use HAL_GetTick() to provide a basic time reference (returns milliseconds)
+    uint32_t tick = HAL_GetTick();
+
+    if (tv != NULL) {
+        tv->tv_sec = tick / 1000;
+        tv->tv_usec = (tick % 1000) * 1000;
+    }
+
+    return 0;  // return 0 to indicate success
+}
+
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -321,6 +354,12 @@ void StartDefaultTask(void *argument)
 
   rcl_publisher_t publisher;
   std_msgs__msg__Int32 msg;
+
+  rcl_subscription_t subscriber;
+  std_msgs__msg__Int32 sub_msg;
+
+  rclc_executor_t executor;
+
   rclc_support_t support;
   rcl_allocator_t allocator;
   rcl_node_t node;
@@ -340,6 +379,17 @@ void StartDefaultTask(void *argument)
 	ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int32),
 	"cubemx_publisher");
 
+  // create subscriber
+	rclc_subscription_init_default(
+	  &subscriber,
+	  &node,
+	  ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int32),
+	  "cubemx_subscriber");
+
+	// create executor (1 handle needed for the subscriber)
+	rclc_executor_init(&executor, &support.context, 1, &allocator);
+	rclc_executor_add_subscription(&executor, &subscriber, &sub_msg, &subscription_callback, ON_NEW_DATA);
+
   msg.data = 0;
   /* Infinite loop */
   for(;;)
@@ -351,6 +401,8 @@ void StartDefaultTask(void *argument)
 	  }
 
 	  msg.data++;
+
+	  rclc_executor_spin_some(&executor, 10000000);
 	  osDelay(10);
 	}
   /* USER CODE END 5 */
