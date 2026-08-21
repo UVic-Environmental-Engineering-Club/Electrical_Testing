@@ -21,6 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "VL53L0X.h"
+#include "stdio.h"
 
 /* USER CODE END Includes */
 
@@ -36,10 +38,24 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
+uint16_t distance;
+uint8_t distance_from_center = 90; //millimeters
+uint8_t distance_to_end = 180;
+unsigned int counter = 0; // counter represents position of motor
+unsigned int target_counter = 0;
+uint16_t period = 3000;
+uint8_t direction = 0;
+uint8_t moving = 0;
+uint8_t homing = 1;
+
+void change_period(void);
 
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+I2C_HandleTypeDef hi2c2;
+
+TIM_HandleTypeDef htim2;
 
 /* USER CODE BEGIN PV */
 
@@ -48,12 +64,123 @@
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_TIM2_Init(void);
+static void MX_I2C2_Init(void);
 /* USER CODE BEGIN PFP */
-
+static uint8_t internal_cs = 16;
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+
+
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
+
+	//only in homing mode: move to one end with no limit
+	if (homing == 1) {
+
+		HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, 1);
+		direction = 1;
+		HAL_GPIO_TogglePin(PUL_GPIO_Port, PUL_Pin);
+
+	} else {
+
+		if (moving == 1) {
+				//increment or decrement the counter depending on current direction
+				//TODO: add upper limit on counter
+				if (direction == 1 && counter > 0) {
+							counter--;
+						} else {
+							counter++;
+						}
+
+				HAL_GPIO_TogglePin(PUL_GPIO_Port, PUL_Pin);
+
+
+			}
+
+			//move until we reach the target distance
+			  if (counter != target_counter){
+				  int steps_diff = target_counter - counter;
+
+				  //set direction by checking whether the target is forwards or backwardsfrom current position
+				  if (steps_diff < 0) {
+						HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, 1);
+						direction = 1;
+				  } else {
+						HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, 0);
+						direction = 0;
+				  }
+
+				  moving = 1;
+
+
+			  } else {
+				  moving = 0;
+			  }
+	}
+
+}
+
+
+void stop_pitch_motor(void){
+	TIM2->CCR1 = 0;
+}
+
+/*
+
+void change_pitch(float freq){
+	float khz = freq / 1000;
+	float period_cycle = internal_cs / khz;
+	TIM2->ARR = (int)period_cycle;
+	TIM2->CCR1 = (int)period_cycle / 2;
+}
+
+// input meters
+//
+
+void change_pitch(int target){
+	distance
+	int center
+	distance_from_center
+
+}
+*/
+
+
+
+
+void home_motor(void)
+{
+	//make speed twice as slow during homing
+	period = 6000;
+	change_period();
+
+	while(!HAL_GPIO_ReadPin(LIMIT_GPIO_Port, LIMIT_Pin)){
+
+	}
+
+
+	counter = 0;
+
+	period = 3000;
+	change_period();
+
+	homing = 0;
+}
+
+
+void change_period(void){
+	TIM2->ARR = period;
+	TIM2->CCR1 = period/2;
+}
+
+int mm_to_microsteps(int mm) {
+	int microsteps = (mm * 200 * 8) / 4;
+	return microsteps;
+}
 
 /* USER CODE END 0 */
 
@@ -86,7 +213,48 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_TIM2_Init();
+  MX_I2C2_Init();
   /* USER CODE BEGIN 2 */
+	//HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+  HAL_TIM_Base_Start_IT(&htim2);
+
+	int32_t CH1_DC = 1000;
+
+	HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, 0);
+	HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, 0);
+
+	change_period();
+
+
+	// Initialise a message buffer.
+	char msgBuffer[52];
+	for (uint8_t i = 0; i < 52; i++) {
+		msgBuffer[i] = ' ';
+	}
+
+	/*
+	// Initialise the VL53L0X
+	statInfo_t_VL53L0X distanceStr;
+	initVL53L0X(1, &hi2c2);
+
+	// Configure the sensor for high accuracy and speed in 20 cm.
+	setSignalRateLimit(200);
+	setVcselPulsePeriod(VcselPeriodPreRange, 10);
+	setVcselPulsePeriod(VcselPeriodFinalRange, 14);
+	setMeasurementTimingBudget(300 * 1000UL);
+
+	*/
+
+	home_motor();
+
+	distance = 0;
+
+
+
+
+	target_counter = mm_to_microsteps(100);
+
 
   /* USER CODE END 2 */
 
@@ -94,12 +262,60 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
-	  HAL_Delay(1000);
+
+
+	  HAL_Delay(20000);
+
+	  target_counter = mm_to_microsteps(0);
+
+	  HAL_Delay(20000);
+
+	  target_counter = mm_to_microsteps(100);
+
+	  HAL_Delay(20000);
+
+	  target_counter = mm_to_microsteps(50);
+
+
+	  //adjust counter period and pulse
+	  /*
+	  while(CH1_DC < 6000)
+	      	{
+	      	    TIM2->ARR = CH1_DC;
+	      	    TIM2->CCR1 = CH1_DC / 2;
+
+	      	    CH1_DC += 5;
+
+	      	    HAL_Delay(1);
+	      	}
+	  while(CH1_DC > 1000)
+	      	{
+	      	    TIM2->ARR = CH1_DC;
+	      	    TIM2->CCR1 = CH1_DC / 2;
+	      	    CH1_DC -= 5;
+	      	    HAL_Delay(1);
+	      	}
+	*/
+
+	 /*
+	  HAL_Delay(5000);
+
+	  HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, 1);
+
+	  HAL_Delay(5000);
+
+	  HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, 0);
+
+	*/
+	 // distance = readRangeSingleMillimeters(&distanceStr);
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  //change_pitch(1);
   }
+
+  HAL_TIM_Base_Stop_IT(&htim2);
   /* USER CODE END 3 */
 }
 
@@ -145,6 +361,99 @@ void SystemClock_Config(void)
 }
 
 /**
+  * @brief I2C2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C2_Init(void)
+{
+
+  /* USER CODE BEGIN I2C2_Init 0 */
+
+  /* USER CODE END I2C2_Init 0 */
+
+  /* USER CODE BEGIN I2C2_Init 1 */
+
+  /* USER CODE END I2C2_Init 1 */
+  hi2c2.Instance = I2C2;
+  hi2c2.Init.ClockSpeed = 100000;
+  hi2c2.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c2.Init.OwnAddress1 = 0;
+  hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c2.Init.OwnAddress2 = 0;
+  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C2_Init 2 */
+
+  /* USER CODE END I2C2_Init 2 */
+
+}
+
+/**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 0;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 6000;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 3000;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+  HAL_TIM_MspPostInit(&htim2);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -157,17 +466,38 @@ static void MX_GPIO_Init(void)
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOE_CLK_ENABLE();
+  __HAL_RCC_GPIOF_CLK_ENABLE();
+  __HAL_RCC_GPIOH_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOE, PUL_Pin|EN_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : LED1_Pin */
-  GPIO_InitStruct.Pin = LED1_Pin;
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : PUL_Pin EN_Pin */
+  GPIO_InitStruct.Pin = PUL_Pin|EN_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LED1_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : DIR_Pin */
+  GPIO_InitStruct.Pin = DIR_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(DIR_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : LIMIT_Pin */
+  GPIO_InitStruct.Pin = LIMIT_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(LIMIT_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
