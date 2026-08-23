@@ -33,7 +33,13 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define MAX_DISTANCE 130
+#define MAX_DISTANCE 120
+#define HOMING_SPEED 3000
+#define MOVING_SPEED 6000
+#define STEPS_PER_ROTATION 200
+#define MICROSTEP_RATIO 8
+#define ROTATIONS_PER_MM 4
+#define POS_DIR 1
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -82,8 +88,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	//only in homing mode: move to one end with no limit
 	if (homing == 1) {
 
-		HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, 0);
-		direction = 0;
+		HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, !POS_DIR);
+		direction = !POS_DIR;
 		HAL_GPIO_TogglePin(PUL_GPIO_Port, PUL_Pin);
 
 	} else {
@@ -91,11 +97,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 		if (moving == 1) {
 				//increment or decrement the counter depending on current direction
 				//TODO: add upper limit on counter
-				if (direction == 0 && counter > 0) {
+				if (direction == !POS_DIR && counter > 0) {
 							counter--;
-						} else {
+				} else {
 							counter++;
-						}
+				}
 
 				HAL_GPIO_TogglePin(PUL_GPIO_Port, PUL_Pin);
 
@@ -108,11 +114,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 
 				  //set direction by checking whether the target is forwards or backwardsfrom current position
 				  if (steps_diff < 0) {
-						HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, 0);
-						direction = 0;
+						HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, !POS_DIR);
+						direction = !POS_DIR;
 				  } else {
-						HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, 1);
-						direction = 1;
+						HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, POS_DIR);
+						direction = POS_DIR;
 				  }
 
 				  moving = 1;
@@ -156,7 +162,7 @@ void change_pitch(int target){
 void home_motor(void)
 {
 	//make speed twice as slow during homing
-	period = 6000;
+	period = MOVING_SPEED;
 	TIM2->ARR = period;
 	TIM2->CCR1 = period/2;
 
@@ -167,7 +173,7 @@ void home_motor(void)
 
 	counter = 0;
 
-	period = 3000;
+	period = HOMING_SPEED;
 	TIM2->ARR = period;
 	TIM2->CCR1 = period/2;
 
@@ -181,7 +187,7 @@ void change_period(void){
 }
 
 int mm_to_microsteps(int mm) {
-	int microsteps = (mm * 200 * 8) / 4;
+	int microsteps = (mm * STEPS_PER_ROTATION * MICROSTEP_RATIO) / ROTATIONS_PER_MM;
 	return microsteps;
 }
 

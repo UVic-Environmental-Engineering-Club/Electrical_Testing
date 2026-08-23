@@ -35,17 +35,17 @@ Idx Name          Size      VMA       LMA       File off  Algn
                   CONTENTS, READONLY, DEBUGGING, OCTETS
  15 .debug_rnglists 00000a0f  00000000  00000000  00013c00  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 16 .debug_macro  00001a5b  00000000  00000000  0001460f  2**0
+ 16 .debug_macro  00001a7f  00000000  00000000  0001460f  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 17 .debug_line   0000f2c5  00000000  00000000  0001606a  2**0
+ 17 .debug_line   0000f2c5  00000000  00000000  0001608e  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 18 .debug_str    000d0ce4  00000000  00000000  0002532f  2**0
+ 18 .debug_str    000d0d4e  00000000  00000000  00025353  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 19 .comment      00000043  00000000  00000000  000f6013  2**0
+ 19 .comment      00000043  00000000  00000000  000f60a1  2**0
                   CONTENTS, READONLY
- 20 .debug_frame  000033fc  00000000  00000000  000f6058  2**2
+ 20 .debug_frame  000033fc  00000000  00000000  000f60e4  2**2
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 21 .debug_line_str 00000080  00000000  00000000  000f9454  2**0
+ 21 .debug_line_str 00000080  00000000  00000000  000f94e0  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
 
 Disassembly of section .text:
@@ -388,12 +388,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
  800053c:	2b01      	cmp	r3, #1
  800053e:	d10c      	bne.n	800055a <HAL_TIM_PeriodElapsedCallback+0x2a>
 
-		HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, 0);
+		HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, !POS_DIR);
  8000540:	2200      	movs	r2, #0
  8000542:	2101      	movs	r1, #1
  8000544:	4829      	ldr	r0, [pc, #164]	@ (80005ec <HAL_TIM_PeriodElapsedCallback+0xbc>)
  8000546:	f000 ff59 	bl	80013fc <HAL_GPIO_WritePin>
-		direction = 0;
+		direction = !POS_DIR;
  800054a:	4b29      	ldr	r3, [pc, #164]	@ (80005f0 <HAL_TIM_PeriodElapsedCallback+0xc0>)
  800054c:	2200      	movs	r2, #0
  800054e:	701a      	strb	r2, [r3, #0]
@@ -413,7 +413,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
  800055c:	781b      	ldrb	r3, [r3, #0]
  800055e:	2b01      	cmp	r3, #1
  8000560:	d116      	bne.n	8000590 <HAL_TIM_PeriodElapsedCallback+0x60>
-				if (direction == 0 && counter > 0) {
+				if (direction == !POS_DIR && counter > 0) {
  8000562:	4b23      	ldr	r3, [pc, #140]	@ (80005f0 <HAL_TIM_PeriodElapsedCallback+0xc0>)
  8000564:	781b      	ldrb	r3, [r3, #0]
  8000566:	2b00      	cmp	r3, #0
@@ -457,22 +457,22 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
  80005a8:	68fb      	ldr	r3, [r7, #12]
  80005aa:	2b00      	cmp	r3, #0
  80005ac:	da08      	bge.n	80005c0 <HAL_TIM_PeriodElapsedCallback+0x90>
-						HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, 0);
+						HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, !POS_DIR);
  80005ae:	2200      	movs	r2, #0
  80005b0:	2101      	movs	r1, #1
  80005b2:	480e      	ldr	r0, [pc, #56]	@ (80005ec <HAL_TIM_PeriodElapsedCallback+0xbc>)
  80005b4:	f000 ff22 	bl	80013fc <HAL_GPIO_WritePin>
-						direction = 0;
+						direction = !POS_DIR;
  80005b8:	4b0d      	ldr	r3, [pc, #52]	@ (80005f0 <HAL_TIM_PeriodElapsedCallback+0xc0>)
  80005ba:	2200      	movs	r2, #0
  80005bc:	701a      	strb	r2, [r3, #0]
  80005be:	e007      	b.n	80005d0 <HAL_TIM_PeriodElapsedCallback+0xa0>
-						HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, 1);
+						HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, POS_DIR);
  80005c0:	2201      	movs	r2, #1
  80005c2:	2101      	movs	r1, #1
  80005c4:	4809      	ldr	r0, [pc, #36]	@ (80005ec <HAL_TIM_PeriodElapsedCallback+0xbc>)
  80005c6:	f000 ff19 	bl	80013fc <HAL_GPIO_WritePin>
-						direction = 1;
+						direction = POS_DIR;
  80005ca:	4b09      	ldr	r3, [pc, #36]	@ (80005f0 <HAL_TIM_PeriodElapsedCallback+0xc0>)
  80005cc:	2201      	movs	r2, #1
  80005ce:	701a      	strb	r2, [r3, #0]
@@ -510,7 +510,7 @@ void home_motor(void)
  8000604:	b580      	push	{r7, lr}
  8000606:	af00      	add	r7, sp, #0
 	//make speed twice as slow during homing
-	period = 6000;
+	period = MOVING_SPEED;
  8000608:	4b18      	ldr	r3, [pc, #96]	@ (800066c <home_motor+0x68>)
  800060a:	f241 7270 	movw	r2, #6000	@ 0x1770
  800060e:	801a      	strh	r2, [r3, #0]
@@ -544,7 +544,7 @@ void home_motor(void)
  800063c:	2200      	movs	r2, #0
  800063e:	601a      	str	r2, [r3, #0]
 
-	period = 3000;
+	period = HOMING_SPEED;
  8000640:	4b0a      	ldr	r3, [pc, #40]	@ (800066c <home_motor+0x68>)
  8000642:	f640 32b8 	movw	r2, #3000	@ 0xbb8
  8000646:	801a      	strh	r2, [r3, #0]
@@ -585,7 +585,7 @@ int mm_to_microsteps(int mm) {
  800067e:	b085      	sub	sp, #20
  8000680:	af00      	add	r7, sp, #0
  8000682:	6078      	str	r0, [r7, #4]
-	int microsteps = (mm * 200 * 8) / 4;
+	int microsteps = (mm * STEPS_PER_ROTATION * MICROSTEP_RATIO) / ROTATIONS_PER_MM;
  8000684:	687b      	ldr	r3, [r7, #4]
  8000686:	f44f 72c8 	mov.w	r2, #400	@ 0x190
  800068a:	fb02 f303 	mul.w	r3, r2, r3
@@ -706,7 +706,7 @@ int main(void)
 
 
 	target_counter = mm_to_microsteps(MAX_DISTANCE);
- 8000724:	2082      	movs	r0, #130	@ 0x82
+ 8000724:	2078      	movs	r0, #120	@ 0x78
  8000726:	f7ff ffa9 	bl	800067c <mm_to_microsteps>
  800072a:	4603      	mov	r3, r0
  800072c:	461a      	mov	r2, r3
@@ -734,7 +734,7 @@ int main(void)
  800074c:	f000 fb74 	bl	8000e38 <HAL_Delay>
 
 	  target_counter = mm_to_microsteps(MAX_DISTANCE);
- 8000750:	2082      	movs	r0, #130	@ 0x82
+ 8000750:	2078      	movs	r0, #120	@ 0x78
  8000752:	f7ff ff93 	bl	800067c <mm_to_microsteps>
  8000756:	4603      	mov	r3, r0
  8000758:	461a      	mov	r2, r3
