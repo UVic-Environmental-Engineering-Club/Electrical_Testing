@@ -33,7 +33,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define MAX_DISTANCE 130
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -47,6 +47,7 @@ uint16_t period = 3000;
 uint8_t direction = 0;
 uint8_t moving = 0;
 uint8_t homing = 1;
+
 
 void change_period(void);
 
@@ -81,8 +82,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	//only in homing mode: move to one end with no limit
 	if (homing == 1) {
 
-		HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, 1);
-		direction = 1;
+		HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, 0);
+		direction = 0;
 		HAL_GPIO_TogglePin(PUL_GPIO_Port, PUL_Pin);
 
 	} else {
@@ -90,7 +91,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 		if (moving == 1) {
 				//increment or decrement the counter depending on current direction
 				//TODO: add upper limit on counter
-				if (direction == 1 && counter > 0) {
+				if (direction == 0 && counter > 0) {
 							counter--;
 						} else {
 							counter++;
@@ -107,11 +108,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 
 				  //set direction by checking whether the target is forwards or backwardsfrom current position
 				  if (steps_diff < 0) {
-						HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, 1);
-						direction = 1;
-				  } else {
 						HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, 0);
 						direction = 0;
+				  } else {
+						HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, 1);
+						direction = 1;
 				  }
 
 				  moving = 1;
@@ -156,7 +157,8 @@ void home_motor(void)
 {
 	//make speed twice as slow during homing
 	period = 6000;
-	change_period();
+	TIM2->ARR = period;
+	TIM2->CCR1 = period/2;
 
 	while(!HAL_GPIO_ReadPin(LIMIT_GPIO_Port, LIMIT_Pin)){
 
@@ -166,7 +168,8 @@ void home_motor(void)
 	counter = 0;
 
 	period = 3000;
-	change_period();
+	TIM2->ARR = period;
+	TIM2->CCR1 = period/2;
 
 	homing = 0;
 }
@@ -222,9 +225,10 @@ int main(void)
 	int32_t CH1_DC = 1000;
 
 	HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, 0);
-	HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, 0);
+	HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, 1);
 
-	change_period();
+	TIM2->ARR = period;
+	TIM2->CCR1 = period/2;
 
 
 	// Initialise a message buffer.
@@ -253,7 +257,7 @@ int main(void)
 
 
 
-	target_counter = mm_to_microsteps(100);
+	target_counter = mm_to_microsteps(MAX_DISTANCE);
 
 
   /* USER CODE END 2 */
@@ -264,17 +268,15 @@ int main(void)
   {
 
 
-	  HAL_Delay(20000);
+	  HAL_Delay(10000);
 
 	  target_counter = mm_to_microsteps(0);
 
-	  HAL_Delay(20000);
+	  HAL_Delay(10000);
 
-	  target_counter = mm_to_microsteps(100);
+	  target_counter = mm_to_microsteps(MAX_DISTANCE);
 
-	  HAL_Delay(20000);
 
-	  target_counter = mm_to_microsteps(50);
 
 
 	  //adjust counter period and pulse
