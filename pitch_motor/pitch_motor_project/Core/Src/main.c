@@ -40,6 +40,7 @@
 #define MICROSTEP_RATIO 8
 #define ROTATIONS_PER_MM 4
 #define POS_DIR 1
+#define HOME_TIMEOUT 10000000
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -91,6 +92,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 		HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, !POS_DIR);
 		direction = !POS_DIR;
 		HAL_GPIO_TogglePin(PUL_GPIO_Port, PUL_Pin);
+
+		if (counter > HOME_TIMEOUT){
+			//send timeout error
+		}
+
+		counter++;
 
 	} else {
 
@@ -161,10 +168,10 @@ void change_pitch(int target){
 
 void home_motor(void)
 {
+	counter = 0;
 	//make speed twice as slow during homing
 	period = MOVING_SPEED;
-	TIM2->ARR = period;
-	TIM2->CCR1 = period/2;
+	change_period();
 
 	while(!HAL_GPIO_ReadPin(LIMIT_GPIO_Port, LIMIT_Pin)){
 
@@ -174,8 +181,7 @@ void home_motor(void)
 	counter = 0;
 
 	period = HOMING_SPEED;
-	TIM2->ARR = period;
-	TIM2->CCR1 = period/2;
+	change_period();
 
 	homing = 0;
 }
@@ -233,8 +239,7 @@ int main(void)
 	HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, 0);
 	HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, 1);
 
-	TIM2->ARR = period;
-	TIM2->CCR1 = period/2;
+	change_period();
 
 
 	// Initialise a message buffer.
