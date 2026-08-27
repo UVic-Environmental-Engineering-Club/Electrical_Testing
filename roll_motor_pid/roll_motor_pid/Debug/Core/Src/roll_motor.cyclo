@@ -1,0 +1,11 @@
+../Core/Src/roll_motor.c:27:11:rm_stop	1
+../Core/Src/roll_motor.c:31:11:rm_init_motor	2
+../Core/Src/roll_motor.c:43:11:rm_set_duty_cycle	3
+../Core/Src/roll_motor.c:52:11:rm_modify_duty_cycle	3
+../Core/Src/roll_motor.c:61:11:rm_set_direction	5
+../Core/Src/roll_motor.c:69:11:rm_flip_direction	3
+../Core/Src/roll_motor.c:80:11:rm_read_pot_safe	7
+../Core/Src/roll_motor.c:99:11:rm_get_current_degree	2
+../Core/Src/roll_motor.c:106:11:rm_find_center	1
+../Core/Src/roll_motor.c:110:11:rm_rotate_degrees	2
+../Core/Src/roll_motor.c:116:11:rm_rotate_to	9
