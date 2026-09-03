@@ -34,8 +34,8 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define MAX_DISTANCE 120
-#define HOMING_SPEED 3000
-#define MOVING_SPEED 6000
+#define HOMING_SPEED 6000
+#define MOVING_SPEED 3000
 #define STEPS_PER_ROTATION 200
 #define MICROSTEP_RATIO 8
 #define ROTATIONS_PER_MM 4
@@ -94,7 +94,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 		HAL_GPIO_TogglePin(PUL_GPIO_Port, PUL_Pin);
 
 		if (counter > HOME_TIMEOUT){
-			//send timeout error
+			//TODO: send timeout error
 		}
 
 		counter++;
@@ -123,9 +123,20 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 				  if (steps_diff < 0) {
 						HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, !POS_DIR);
 						direction = !POS_DIR;
+
 				  } else {
 						HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, POS_DIR);
 						direction = POS_DIR;
+				  }
+
+				  if (steps_diff > -2500 && steps_diff < 2500) {
+					  period = 9000;
+					  change_period();
+
+				  } else if (steps_diff > -5000 && steps_diff < 5000) {
+					  //TODO: fix the problem where the period doesn't change back
+					  period = 6000;
+					  change_period();
 				  }
 
 				  moving = 1;
@@ -170,7 +181,7 @@ void home_motor(void)
 {
 	counter = 0;
 	//make speed twice as slow during homing
-	period = MOVING_SPEED;
+	period = HOMING_SPEED;
 	change_period();
 
 	while(!HAL_GPIO_ReadPin(LIMIT_GPIO_Port, LIMIT_Pin)){
@@ -180,7 +191,7 @@ void home_motor(void)
 
 	counter = 0;
 
-	period = HOMING_SPEED;
+	period = MOVING_SPEED;
 	change_period();
 
 	homing = 0;
@@ -279,13 +290,21 @@ int main(void)
   {
 
 
-	  HAL_Delay(10000);
+	  HAL_Delay(15000);
 
 	  target_counter = mm_to_microsteps(0);
 
-	  HAL_Delay(10000);
+
+	  //error: check target counter
+	  period = MOVING_SPEED;
+	  change_period();
+
+	  HAL_Delay(15000);
 
 	  target_counter = mm_to_microsteps(MAX_DISTANCE);
+
+	  period = MOVING_SPEED;
+	  change_period();
 
 
 
