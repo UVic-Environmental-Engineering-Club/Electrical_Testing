@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "stdlib.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -36,11 +37,15 @@
 #define MAX_DISTANCE 120
 #define HOMING_SPEED 6000
 #define MOVING_SPEED 3000
+#define MIN_PVALUE 3000
+#define MAX_PVALUE 25000
 #define STEPS_PER_ROTATION 200
 #define MICROSTEP_RATIO 8
 #define ROTATIONS_PER_MM 4
-#define POS_DIR 1
+#define POS_DIR 1					//positive direction is away from roll motor
 #define HOME_TIMEOUT 10000000
+#define ACC_GAIN 10
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -50,11 +55,11 @@ uint8_t distance_from_center = 90; //millimeters
 uint8_t distance_to_end = 180;
 unsigned int counter = 0; // counter represents position of motor
 unsigned int target_counter = 0;
-uint16_t period = 3000;
+int period = 3000;
 uint8_t direction = 0;
 uint8_t moving = 0;
 uint8_t homing = 1;
-
+int steps_diff = 0;
 
 void change_period(void);
 
@@ -117,18 +122,38 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 
 			//move until we reach the target distance
 			  if (counter != target_counter){
-				  int steps_diff = target_counter - counter;
+				  steps_diff = target_counter - counter;
 
 				  //set direction by checking whether the target is forwards or backwardsfrom current position
 				  if (steps_diff < 0) {
 						HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, !POS_DIR);
 						direction = !POS_DIR;
 
+
 				  } else {
 						HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, POS_DIR);
 						direction = POS_DIR;
 				  }
 
+				  //change the speed depending on the distance away from target (acceleration)
+
+
+				  period = MAX_PVALUE - (abs(steps_diff) * ACC_GAIN);
+
+				  if (period > MAX_PVALUE) {
+						period = MAX_PVALUE;
+				  } else if (period < MIN_PVALUE) {
+						period = MIN_PVALUE;
+				  }
+
+
+				  change_period();
+
+
+
+
+
+				  /*
 				  if (steps_diff > -2500 && steps_diff < 2500) {
 					  period = 9000;
 					  change_period();
@@ -138,6 +163,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 					  period = 6000;
 					  change_period();
 				  }
+				  */
 
 				  moving = 1;
 
@@ -248,9 +274,8 @@ int main(void)
 	int32_t CH1_DC = 1000;
 
 	HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, 0);
-	HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, 1);
 
-	change_period();
+
 
 
 	// Initialise a message buffer.
@@ -288,7 +313,16 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  /*
 
+	  for (int i = 0; i < MAX_DISTANCE; i++ ){
+		  target_counter = mm_to_microsteps(i);
+		  HAL_Delay(50);
+	  }
+
+	  target_counter = mm_to_microsteps(0);
+	  HAL_Delay(15000);
+	  */
 
 	  HAL_Delay(15000);
 
@@ -296,17 +330,18 @@ int main(void)
 
 
 	  //error: check target counter
-	  period = MOVING_SPEED;
-	  change_period();
+	  //period = MOVING_SPEED;
+	  //change_period();
 
 	  HAL_Delay(15000);
 
 	  target_counter = mm_to_microsteps(MAX_DISTANCE);
 
+/*
 	  period = MOVING_SPEED;
 	  change_period();
 
-
+*/
 
 
 	  //adjust counter period and pulse
