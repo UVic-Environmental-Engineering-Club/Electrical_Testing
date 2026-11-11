@@ -26,12 +26,12 @@ const char *FIRMWARE_VERSION = "0.3.1";
 #define CAN_RX_PIN 44 // CAN RX -> SN65HVD230 RXD
 
 //#define DRAW_WIRE_SENSOR_POLL_INTERVAL_MS 1000 // Interval for polling the draw-wire sensor over CAN
-#define DRAW_WIRE_SENSOR_POLL_INTERVAL_MS 500
+#define DRAW_WIRE_SENSOR_POLL_INTERVAL_MS 50
 #define CONTROL_LOOP_INTERVAL_MS 500
 
 // thomas code
-#define BALLAST_MIN_POSITION 35761 // maximum position of the ballast
-#define BALLAST_MAX_POSITION 24794 // minimum position of the ballast
+#define BALLAST_MIN_POSITION 36100 // maximum position of the ballast
+#define BALLAST_MAX_POSITION 24543 // minimum position of the ballast
 int ballest_tank_target_fill_percent = 10;
 
 int ballastPostion = 0; // current position of the ballast -- this needs to be updated from the encoder value
@@ -40,12 +40,12 @@ int integral = 0; // integral term to accumulate error over time
 int previousError = 0; // previous error value for derivative calculation
 
 // PID control parameters -- NEEDS TO BE TUNED FOR THE SYSTEM
-float kp = 1; // proportional gain
+float kp = 2.0f; // proportional gain
 float ki = 0; // integral gain
 float kd = 0; // derivative gain
 int dt = CONTROL_LOOP_INTERVAL_MS; // time step in milliseconds
 
-#define DEADBAND 40
+#define DEADBAND 15
 
 int decendFillPercent = 10;
 int ascendFillPercent = 10;
@@ -80,8 +80,11 @@ WebServer server(80); // Web server listening on HTTP port 80
 const int pwmChannel = 0;      // ESP32 PWM generator/channel number
 const int pwmFrequency = 5000; // PWM frequency in Hz (pump controller supports 1-25 kHz)
 const int pwmResolution = 10;  // PWM resolution in bits (10-bit = 0-1023)
-#define pwmMinDuty 300
+#define pwmMinDuty 0
 #define pwmMaxDuty 1023   // Maximum duty cycle value for 10-bit PWM
+
+#include <ESP32Servo.h>  // Include the built-in servo library
+Servo pumpServoController;      // Create a servo object to control your motor
 
 // -----------------------------------------------------------------------------
 // System state
@@ -103,15 +106,36 @@ void setPumpState(int pumpEnabled, int pumpPWM, int pumpReverse)
   // Enable/disable pump controller.
   // HIGH = enabled
   // LOW  = disabled
-  digitalWrite(PUMP_ENABLE_PIN, pumpEnabled ? HIGH : LOW);
+  //digitalWrite(PUMP_ENABLE_PIN, pumpEnabled ? HIGH : LOW);
 
   // Set pump direction.
   // HIGH = normal direction
   // LOW  = reverse direction
-  digitalWrite(PUMP_DIRECTION_PIN, pumpReverse ? LOW : HIGH);
+  //digitalWrite(PUMP_DIRECTION_PIN, pumpReverse ? LOW : HIGH);
 
   // Output PWM speed command to the pump controller.
-  ledcWrite(pwmChannel, pumpPWM);
+  //ledcWrite(pwmChannel, pumpPWM);
+
+  if(!pumpEnabled)
+  {
+    pumpServoController.writeMicroseconds(1500); // Stop the pump
+  }
+  else{ 
+    if(!pumpReverse)
+    {
+      // Reverse direction
+      int pwmValue = map(pumpPWM, pwmMinDuty, pwmMaxDuty, 1400, 1000); // Map to 1000-1500us for reverse
+      pumpServoController.writeMicroseconds(pwmValue);
+      Serial.println(pwmValue);
+    }
+    else
+    {
+      // Forward direction
+      int pwmValue = map(pumpPWM, pwmMinDuty, pwmMaxDuty, 1600, 2000); // Map to 1500-2000us for forward
+      pumpServoController.writeMicroseconds(pwmValue);
+      Serial.println(pwmValue);
+    }
+  }
 
   //Serial.println("Speed: " + String(pumpPWM));
 }
@@ -179,6 +203,7 @@ void testRoutine(void *parameter)
   ballest_tank_target_fill_percent = decendFillPercent;
   delay(decentTime);
   ballest_tank_target_fill_percent = ascendFillPercent;
+  delay(decentTime);
   //End task
   testRoutineHandle = NULL;
   vTaskDelete(NULL);
@@ -250,7 +275,7 @@ void pidBallastControl(int encoderValue, int targetValue, int integral, int prev
   // PID output
   int output = p + i + d;
 
-  setPumpState((abs(error) >= DEADBAND),constrain(abs(output), pwmMinDuty, pwmMaxDuty),(output <= 0));
+  setPumpState((abs(error) >= DEADBAND),constrain(abs(output), pwmMinDuty, pwmMaxDuty),(output >= 0));
 
   //update previous error for next iteration
   previousError = error;
@@ -337,7 +362,7 @@ void receiveCANMessageTask(void *parameter)
             
             //Map the target fill percentage to a target encoder value
             int target_value = map(ballest_tank_target_fill_percent, 0, 100, BALLAST_MIN_POSITION, BALLAST_MAX_POSITION);
-            Serial.println(ballest_tank_target_fill_percent);
+            //Serial.println(ballest_tank_target_fill_percent);
             if(pumpEnabled)
             {
               pidBallastControl(encoderValue, target_value, integral, previousError, dt);
@@ -644,7 +669,7 @@ void handleRoot()
         .then(data => {
           if (data.encoderValue !== lastEncoderValue) {
             lastEncoderValue = data.encoderValue;
-            appendLog('Encoder value: ' + data.encoderValue);
+            appendLog('Ballast Fill %: ' + data.encoderValue);
           }
         })
         .catch(error => {
@@ -687,7 +712,9 @@ void handleWebCommand()
 // Return the current encoder value as JSON.
 void handleEncoderValue()
 {
-  String payload = "{\"encoderValue\":" + String(encoderValue) + "}";
+  float fillPercent = ((float)encoderValue - BALLAST_MIN_POSITION) * 100.0f /
+                      (BALLAST_MAX_POSITION - BALLAST_MIN_POSITION);
+  String payload = "{\"encoderValue\":" + String(fillPercent, 2) + "}";
   server.send(200, "application/json", payload);
 }
 
@@ -752,8 +779,10 @@ void setup()
   pinMode(PUMP_ENABLE_PIN, OUTPUT);
   pinMode(PUMP_DIRECTION_PIN, OUTPUT);
 
-  ledcSetup(pwmChannel, pwmFrequency, pwmResolution);
-  ledcAttachPin(PUMP_PWM_PIN, pwmChannel);
+  //ledcSetup(pwmChannel, pwmFrequency, pwmResolution);
+  //ledcAttachPin(PUMP_PWM_PIN, pwmChannel);
+
+  pumpServoController.attach(PUMP_PWM_PIN, 1000, 2000); // Attach the servo object to the PWM pin
 
   startAccessPoint();
   startWebServer();
