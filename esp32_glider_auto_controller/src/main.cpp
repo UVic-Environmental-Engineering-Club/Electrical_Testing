@@ -18,12 +18,10 @@ const char *FIRMWARE_VERSION = "0.3.1";
 #define LED_BUILTIN 48
 #endif
 
-#define PUMP_ENABLE_PIN 4    // Pump Enable
-#define PUMP_DIRECTION_PIN 5 // Pump Direction
-#define PUMP_PWM_PIN 6       // Pump Speed (PWM -> RC filter -> 0-4V input)
+#define PUMP_PWM_PIN 2       // Pump Speed (PWM -> RC filter -> 0-4V input)
 
-#define CAN_TX_PIN 43 // CAN TX -> SN65HVD230 TXD
-#define CAN_RX_PIN 44 // CAN RX -> SN65HVD230 RXD
+#define CAN_TX_PIN 0 // CAN TX -> SN65HVD230 TXD
+#define CAN_RX_PIN 1 // CAN RX -> SN65HVD230 RXD
 
 //#define DRAW_WIRE_SENSOR_POLL_INTERVAL_MS 1000 // Interval for polling the draw-wire sensor over CAN
 #define DRAW_WIRE_SENSOR_POLL_INTERVAL_MS 50
@@ -776,8 +774,6 @@ void setup()
   printStartupBanner();
 
   pinMode(LED_BUILTIN, OUTPUT);
-  pinMode(PUMP_ENABLE_PIN, OUTPUT);
-  pinMode(PUMP_DIRECTION_PIN, OUTPUT);
 
   //ledcSetup(pwmChannel, pwmFrequency, pwmResolution);
   //ledcAttachPin(PUMP_PWM_PIN, pwmChannel);
